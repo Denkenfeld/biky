@@ -726,7 +726,9 @@ function showDrop(results){
     const name = r.display_name.split(',')[0];
     const sub  = r.display_name.split(',').slice(1,3).join(',').trim();
     const icon = r.type==='street'||r.type==='road'?'🛣️':r.class==='place'?'📍':r.class==='natural'?'🌳':'📌';
-    return `<div class="sr-item" onclick="selectResult(${r.lat},${r.lon},'${name.replace(/'/g,'\\'')}')">
+    
+    /* 💥 HIER WAR DER FEHLER: Das Escaping des Anführungszeichens wurde vom Browser falsch gelesen! */
+    return `<div class="sr-item" onclick="selectResult(${r.lat},${r.lon},'${name.replace(/'/g, "\\'")}')">
       <span class="sr-pin">${icon}</span>
       <div style="min-width:0"><div class="sr-name">${name}</div><div class="sr-sub">${sub}</div></div>
     </div>`;
