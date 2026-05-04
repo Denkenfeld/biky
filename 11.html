@@ -304,7 +304,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
 </head>
 <body>
 
-<!-- API KEY DIALOG -->
 <div id="api-overlay">
   <div class="dlg g">
     <div class="dlg-head">
@@ -312,10 +311,10 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
       <div class="dlg-sub">Pro · 3D Routenplaner · Steigungsheatmap · Terrain</div>
     </div>
     <div class="dlg-body">
-      <p>Für <strong>3D-Gelände &amp; Satelliten</strong> wird ein kostenloser <strong>MapTiler API Key</strong> benötigt. Kostenlos auf <a href="https://cloud.maptiler.com/account/keys/" target="_blank">maptiler.com</a> — 100.000 Tiles/Monat, keine Kreditkarte.</p>
+      <p>Für <strong>3D-Gelände & Satelliten</strong> wird ein kostenloser <strong>MapTiler API Key</strong> benötigt. Kostenlos auf <a href="https://cloud.maptiler.com/account/keys/" target="_blank">maptiler.com</a> — 100.000 Tiles/Monat, keine Kreditkarte.</p>
       <div class="dlg-lbl">MapTiler API Key (optional)</div>
       <input class="dlg-inp" id="api-inp" placeholder="AbCdEfGh… (Enter drücken oder leer lassen)" autocomplete="off">
-      <div class="dlg-note">⚡ <strong>Ohne Key:</strong> Routing, Höhenprofil &amp; Steigungsheatmap funktionieren vollständig — 3D-Terrain &amp; Satellit benötigen einen Key.</div>
+      <div class="dlg-note">⚡ <strong>Ohne Key:</strong> Routing, Höhenprofil & Steigungsheatmap funktionieren vollständig — 3D-Terrain & Satellit benötigen einen Key.</div>
       <div class="dlg-acts">
         <button class="btn" onclick="launch('')">Demo-Modus</button>
         <button class="btn ok" onclick="launch(document.getElementById('api-inp').value.trim())">Starten →</button>
@@ -324,7 +323,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   </div>
 </div>
 
-<!-- MAP -->
 <div id="map-wrap">
   <div id="map"></div>
   <div id="loading" class="g"><div class="spin"></div><span id="load-txt">Wird geladen…</span></div>
@@ -332,7 +330,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   <div id="rt-tip"></div>
 </div>
 
-<!-- HEADER -->
 <header id="header" class="g">
   <div class="logo">VELO<em>NAV</em><span class="logo-badge">PRO</span></div>
   <div id="srch-wrap">
@@ -351,7 +348,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   </div>
 </header>
 
-<!-- MAP CONTROLS -->
 <div id="map-ctrls">
   <div class="ctrl-group">
     <span class="ctrl-title">Kartenmodus</span>
@@ -379,7 +375,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   </div>
 </div>
 
-<!-- ELEVATION PANEL -->
 <div id="elev-panel" class="g">
   <div class="elev-hdr">
     <div class="elev-title">▲ Höhenprofil</div>
@@ -388,7 +383,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   <canvas id="elev-canvas"></canvas>
 </div>
 
-<!-- DESKTOP SIDEBAR -->
 <aside id="sidebar" class="g">
   <nav class="tab-nav">
     <button class="tab-btn active" onclick="switchTab('t-stats',this)">Stats</button>
@@ -397,7 +391,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
     <button class="tab-btn" onclick="switchTab('t-saves',this)">Saves</button>
   </nav>
   <div class="tab-body">
-    <!-- STATS TAB -->
     <div class="tab-pane on" id="t-stats">
       <div class="sb">
         <div class="sb-title">Routenstatistik</div>
@@ -436,7 +429,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
       </div>
     </div>
 
-    <!-- ROUTE TAB -->
     <div class="tab-pane" id="t-route">
       <div style="padding:9px 13px 4px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
         <span style="font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)">Wegpunkte <span id="wp-count" style="color:var(--accent);font-size:12px">0</span></span>
@@ -449,10 +441,9 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
       <div id="wp-list"><div class="wp-empty">Klicke auf die Karte<br>um Wegpunkte zu setzen</div></div>
     </div>
 
-    <!-- TOOLS TAB -->
     <div class="tab-pane" id="t-tools">
       <div class="sb">
-        <div class="sb-title">Export &amp; Import</div>
+        <div class="sb-title">Export & Import</div>
         <div class="tool-grid">
           <button class="tool-btn" onclick="exportGPX()"><span class="ti">⬇️</span>GPX Export</button>
           <button class="tool-btn" onclick="document.getElementById('gpx-file').click()"><span class="ti">⬆️</span>GPX Import</button>
@@ -476,7 +467,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
       </div>
     </div>
 
-    <!-- SAVES TAB -->
     <div class="tab-pane" id="t-saves">
       <div class="sb">
         <div class="sb-title">Route speichern</div>
@@ -493,7 +483,6 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   </div>
 </aside>
 
-<!-- MOBILE BOTTOM SHEET -->
 <div id="bsheet">
   <div id="sh-handle" onclick="toggleSheet()"><div class="sh-bar"></div></div>
   <div id="sh-peek">
@@ -551,9 +540,7 @@ body{font-family:var(--font);background:var(--bg);color:var(--text);letter-spaci
   </div>
 </div>
 
-<!-- Hidden GPX file input -->
 <input type="file" id="gpx-file" accept=".gpx" style="display:none" onchange="importGPX(this)">
-<!-- Hidden toast -->
 <div id="toast"></div>
 
 <script>
@@ -584,7 +571,7 @@ const PROFILES = {
 // ELEVATION CACHE  (localStorage-backed, avoids rate-limiting)
 // ══════════════════════════════════════════════════
 const ELC = (() => {
-  try { return JSON.parse(localStorage.getItem('vn_el_c') || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem('vn_el_c') || '{}'); } catch(e) { return {}; }
 })();
 let elcDirty = false;
 
@@ -774,6 +761,10 @@ document.addEventListener('click', e => {
 document.getElementById('api-inp').addEventListener('keydown', e => { if(e.key==='Enter') launch(e.target.value.trim()); });
 
 function launch(key){
+  if (typeof maplibregl === 'undefined') {
+      alert("Es gab ein Problem beim Laden der Karte. Bitte überprüfe deine Internetverbindung oder deaktiviere deinen Adblocker.");
+      return;
+  }
   apiKey = key;
   document.getElementById('api-overlay').style.display='none';
   initMap();
@@ -1179,7 +1170,13 @@ const wpChartPlugin={
     ctx.restore();
   }
 };
-Chart.register(wpChartPlugin);
+
+// Safe registration for Chart plugin
+if (typeof Chart !== 'undefined') {
+    Chart.register(wpChartPlugin);
+} else {
+    console.warn('Chart.js konnte nicht geladen werden.');
+}
 
 function renderElevChart(){
   const {coords,elevs} = fullRoute;
@@ -1198,6 +1195,8 @@ function renderElevChart(){
   }
   
   if(elevChart){ elevChart.data.datasets[0].data=data; elevChart.update('none'); return; }
+  
+  if (typeof Chart === 'undefined') return;
 
   const ctx=document.getElementById('elev-canvas').getContext('2d');
   const grad=ctx.createLinearGradient(0,0,0,110);
@@ -1308,7 +1307,7 @@ function saveRoute(){
   showToast(`✓ "${name}" gespeichert`);
 }
 
-function getSaves(){ try { return JSON.parse(localStorage.getItem('vn_saves')||'[]'); } catch{ return []; } }
+function getSaves(){ try { return JSON.parse(localStorage.getItem('vn_saves')||'[]'); } catch(e){ return []; } }
 
 function renderSavesList(){
   const saves=getSaves();
