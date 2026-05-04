@@ -1,0 +1,1352 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VELONAV · 3D Routenplaner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:      #080b0f;
+  --panel:   #0d1117;
+  --card:    #111820;
+  --border:  #1e2a38;
+  --border2: #253040;
+  --accent:  #00d4ff;
+  --accent2: #0099cc;
+  --green:   #00e676;
+  --red:     #ff1744;
+  --orange:  #ff9100;
+  --yellow:  #ffd600;
+  --text:    #cdd9e5;
+  --muted:   #5a7080;
+  --font-head: 'Barlow Condensed', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* { margin:0; padding:0; box-sizing:border-box; }
+
+body {
+  font-family: var(--font-head);
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  letter-spacing: 0.02em;
+}
+
+/* ── HEADER ──────────────────────────────── */
+#header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  height: 48px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  text-shadow: 0 0 20px rgba(0,212,255,.4);
+}
+.logo span { color: var(--text); font-weight: 300; }
+
+.divider { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+
+.hdr-btns { display: flex; gap: 6px; margin-left: auto; }
+
+.btn {
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 5px 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all .15s;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,.06); }
+.btn.active { background: rgba(0,212,255,.15); border-color: var(--accent); color: var(--accent); }
+.btn.red:hover { border-color: var(--red); color: var(--red); background: rgba(255,23,68,.06); }
+.btn.export { border-color: var(--green); color: var(--green); background: rgba(0,230,118,.06); }
+.btn.export:hover { background: rgba(0,230,118,.15); }
+
+/* ── MAIN LAYOUT ─────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── MAP ─────────────────────────────────── */
+#map-wrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+#map {
+  flex: 1;
+}
+
+.maplibregl-canvas { cursor: crosshair !important; }
+.maplibregl-ctrl-group { background: var(--panel) !important; border: 1px solid var(--border) !important; }
+.maplibregl-ctrl-group button { background: var(--panel) !important; }
+.maplibregl-ctrl-group button span { filter: invert(1) brightness(0.7); }
+
+/* Popup Styling */
+.maplibregl-popup-content {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+  font-family: var(--font-head);
+}
+.maplibregl-popup-tip {
+  border-top-color: var(--panel) !important;
+  border-bottom-color: var(--panel) !important;
+}
+
+/* Map overlay controls */
+#map-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  z-index: 5;
+  max-width: 360px;
+}
+
+/* Loading pill */
+#loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(8,11,15,.92);
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 12px 20px;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  z-index: 100;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  box-shadow: 0 0 30px rgba(0,212,255,.15);
+}
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* Tooltip instruction */
+#hint {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8,11,15,.8);
+  border: 1px solid var(--border2);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  pointer-events: none;
+  z-index: 5;
+  text-transform: uppercase;
+}
+
+/* ── ELEVATION PANEL ─────────────────────── */
+#elev-panel {
+  height: 140px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  padding: 8px 12px 6px;
+  flex-shrink: 0;
+}
+.elev-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+#elev-chart-canvas { height: 110px !important; }
+
+/* ── SIDEBAR ─────────────────────────────── */
+#sidebar {
+  width: 270px;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.sblock {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.sblock-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+/* Stats grid */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.stat-val {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--accent);
+  line-height: 1;
+}
+.stat-lbl {
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 3px;
+  text-transform: uppercase;
+}
+
+/* Gradient bar */
+.grad-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 2px;
+  overflow: hidden;
+  gap: 1px;
+  margin-bottom: 5px;
+}
+.grad-segment { flex: 1; }
+.grad-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+
+/* Waypoints */
+#wp-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 8px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.wp-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 24px 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  line-height: 1.6;
+}
+.wp-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 4px;
+  margin-bottom: 3px;
+  background: var(--card);
+  border: 1px solid transparent;
+  transition: border-color .15s;
+}
+.wp-item:hover { border-color: var(--border2); }
+.wp-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+.wp-coords {
+  font-size: 10px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  line-height: 1.3;
+}
+.wp-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.wp-remove {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  transition: all .15s;
+  flex-shrink: 0;
+}
+.wp-remove:hover { color: var(--red); background: rgba(255,23,68,.1); }
+
+/* ── API DIALOG ──────────────────────────── */
+#api-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4,6,10,.92);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+.dialog {
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  width: 460px;
+  max-width: 92vw;
+  overflow: hidden;
+}
+.dialog-head {
+  background: linear-gradient(135deg, #0d1a2a, #0a1520);
+  border-bottom: 1px solid var(--border);
+  padding: 20px 24px 16px;
+}
+.dialog-logo {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  text-shadow: 0 0 30px rgba(0,212,255,.5);
+  margin-bottom: 4px;
+}
+.dialog-logo span { color: var(--text); font-weight: 300; }
+.dialog-sub { font-size: 13px; color: var(--muted); }
+.dialog-body { padding: 20px 24px; }
+.dialog-body p {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--text);
+  line-height: 1.6;
+  margin-bottom: 16px;
+}
+.dialog-body a { color: var(--accent); text-decoration: none; }
+.dialog-body a:hover { text-decoration: underline; }
+.dlg-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 5px;
+}
+.dlg-input {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color .15s;
+  margin-bottom: 16px;
+}
+.dlg-input:focus { border-color: var(--accent); }
+.dlg-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.dlg-actions .btn { font-size: 13px; padding: 7px 14px; }
+
+/* Terrain exaggeration slider */
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.slider-row input[type=range] {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 3px;
+}
+.slider-val {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--accent);
+  width: 30px;
+  text-align: right;
+}
+
+/* Tooltip on route hover */
+.map-tooltip {
+  position: absolute;
+  background: rgba(8,11,15,.92);
+  border: 1px solid var(--border2);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 20;
+  display: none;
+  font-family: var(--font-mono);
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* Scanline overlay for aesthetic */
+#map-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,.03) 2px,
+    rgba(0,0,0,.03) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+</style>
+</head>
+<body>
+
+<div id="api-overlay">
+  <div class="dialog">
+    <div class="dialog-head">
+      <div class="dialog-logo">VELO<span>NAV</span></div>
+      <div class="dialog-sub">3D Fahrrad Routenplaner · Steigungsheatmap · Terrain</div>
+    </div>
+    <div class="dialog-body">
+      <p>Für <strong>3D-Gelände</strong> wird ein kostenloser <strong>MapTiler API Key</strong> benötigt.
+      Kostenlos registrieren auf <a href="https://cloud.maptiler.com/account/keys/" target="_blank">maptiler.com</a>
+      — 100.000 Tiles/Monat gratis, keine Kreditkarte nötig.</p>
+
+      <div class="dlg-label">MapTiler API Key (optional)</div>
+      <input class="dlg-input" id="api-key-inp" placeholder="z.B. AbCdEfGhIjKlMnOpQrSt1234..." autocomplete="off">
+
+      <div class="dlg-note">
+        ⚡ <strong>Ohne Key:</strong> Routing, Höhenprofil & Steigungsheatmap funktionieren vollständig —
+        nur das 3D-Gelände und Satellit benötigen einen Key.
+      </div>
+
+      <div class="dlg-actions">
+        <button class="btn" onclick="launch('')">Demo-Modus</button>
+        <button class="btn export" onclick="launch(document.getElementById('api-key-inp').value.trim())">Starten →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="header">
+  <div class="logo">VELO<span>NAV</span></div>
+  <div class="divider"></div>
+  <span style="font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--muted);text-transform:uppercase">3D Routenplaner</span>
+  <div class="hdr-btns">
+    <button class="btn" id="btn-undo" onclick="undoWaypoint()" title="Letzten Punkt rückgängig">↩ Undo</button>
+    <button class="btn red" onclick="clearAll()" title="Route löschen">✕ Route</button>
+    <button class="btn export" onclick="exportGMaps()" title="In Google Maps öffnen">↗ Google Maps</button>
+  </div>
+</div>
+
+<div id="main">
+
+  <div id="map-wrap">
+
+    <div id="map"></div>
+
+    <div id="map-controls">
+      <button class="btn" id="btn-terrain" onclick="toggleTerrain()">🏔 3D-Terrain</button>
+      <button class="btn" id="btn-mesh" onclick="toggleMesh()">⬡ Mesh</button>
+      <button class="btn" id="btn-hide-map" onclick="toggleHideMap()">👁 Karte</button>
+      <button class="btn" id="btn-satellite" onclick="toggleSatellite()">🛰 Satellit</button>
+    </div>
+
+    <div id="loading"><div class="spinner"></div><span id="load-txt">Wird geladen…</span></div>
+    <div id="hint">Klicken um Wegpunkte zu setzen</div>
+    <div class="map-tooltip" id="rt-tooltip"></div>
+
+    <div id="elev-panel">
+      <div class="elev-title">▲ Höhenprofil</div>
+      <canvas id="elev-chart-canvas"></canvas>
+    </div>
+
+  </div>
+
+  <div id="sidebar">
+
+    <div class="sblock">
+      <div class="sblock-title">Routenstatistik</div>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <div class="stat-val" id="s-dist">—</div>
+          <div class="stat-lbl">Distanz</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="s-up" style="color:var(--red)">—</div>
+          <div class="stat-lbl">Aufstieg ↑</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="s-down" style="color:var(--green)">—</div>
+          <div class="stat-lbl">Abstieg ↓</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-val" id="s-grade" style="color:var(--orange)">—</div>
+          <div class="stat-lbl">Max. Steigung</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sblock" id="exag-block">
+      <div class="sblock-title">Geländeüberhöhung</div>
+      <div class="slider-row">
+        <span>1×</span>
+        <input type="range" id="exag-slider" min="1" max="4" step="0.1" value="1.5" oninput="setExaggeration(this.value)">
+        <span>4×</span>
+        <span class="slider-val" id="exag-val">1.5×</span>
+      </div>
+    </div>
+
+    <div class="sblock">
+      <div class="sblock-title">Steigungsfarben</div>
+      <div class="grad-bar">
+        <div class="grad-segment" style="background:#0066cc"></div>
+        <div class="grad-segment" style="background:#0099ee"></div>
+        <div class="grad-segment" style="background:#22ccff"></div>
+        <div class="grad-segment" style="background:#00e676"></div>
+        <div class="grad-segment" style="background:#ffd600"></div>
+        <div class="grad-segment" style="background:#ff9100"></div>
+        <div class="grad-segment" style="background:#ff1744"></div>
+      </div>
+      <div class="grad-labels">
+        <span>≤-8%</span><span>-4%</span><span>-1%</span><span>0</span><span>+1%</span><span>+4%</span><span>≥+8%</span>
+      </div>
+    </div>
+
+    <div class="sblock" style="padding-bottom:6px">
+      <div class="sblock-title" style="margin-bottom:0">
+        Wegpunkte <span id="wp-count" style="color:var(--accent);margin-left:4px">0</span>
+      </div>
+    </div>
+    <div id="wp-list">
+      <div class="wp-empty">Klicke auf die Karte<br>um Wegpunkte zu setzen</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════
+let map, elevChart;
+let apiKey = '';
+let waypoints = [];
+let segments  = []; // {coords: [[lng,lat]...], elevs: [m...]}
+let fullRoute = { coords: [], elevs: [] };
+let terrainOn    = true;
+let meshOn       = false;
+let satelliteOn  = false;
+let mapHidden    = false;
+let mapLayerIds  = [];
+window.wpDistancesKm = []; // Speichert Distanzen der Wegpunkte für das Chart
+
+// ═══════════════════════════════════════════════════
+// CHART.JS PLUGIN FÜR WEGPUNKTE
+// ═══════════════════════════════════════════════════
+const waypointChartPlugin = {
+  id: 'wpLines',
+  beforeDraw: (chart) => {
+    if (!window.wpDistancesKm || window.wpDistancesKm.length === 0) return;
+    const ctx = chart.ctx;
+    const xAxis = chart.scales.x;
+    const yAxis = chart.scales.y;
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+
+    window.wpDistancesKm.forEach((dist, i) => {
+      if (dist === 0 && i > 0) return; 
+      const x = xAxis.getPixelForValue(dist);
+      if (x < xAxis.left || x > xAxis.right) return;
+      
+      const color = i === 0 ? '#00e676' : i === window.wpDistancesKm.length - 1 ? '#ff1744' : '#ffd600';
+      
+      // Linie zeichnen
+      ctx.strokeStyle = color;
+      ctx.beginPath();
+      ctx.moveTo(x, yAxis.top);
+      ctx.lineTo(x, yAxis.bottom);
+      ctx.stroke();
+
+      // Punkt unten zeichnen
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(x, yAxis.bottom, 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+};
+Chart.register(waypointChartPlugin);
+
+// ═══════════════════════════════════════════════════
+// GRADIENT → COLOR
+// ═══════════════════════════════════════════════════
+function gradeColor(g) {
+  if (g <= -8)  return '#0066cc';
+  if (g <= -4)  return '#0099ee';
+  if (g <= -1)  return '#22ccff';
+  if (g <   1)  return '#00e676';
+  if (g <   4)  return '#ffd600';
+  if (g <   8)  return '#ff9100';
+  return '#ff1744';
+}
+
+// ═══════════════════════════════════════════════════
+// LAUNCH
+// ═══════════════════════════════════════════════════
+function launch(key) {
+  apiKey = key;
+  document.getElementById('api-overlay').style.display = 'none';
+  initMap();
+}
+
+// Enter key
+document.getElementById('api-key-inp').addEventListener('keydown', e => {
+  if (e.key === 'Enter') launch(e.target.value.trim());
+});
+
+// ═══════════════════════════════════════════════════
+// MAP INIT
+// ═══════════════════════════════════════════════════
+function initMap() {
+  const style = apiKey
+    ? `https://api.maptiler.com/maps/outdoor-v2/style.json?key=${apiKey}`
+    : buildFallbackStyle();
+
+  map = new maplibregl.Map({
+    container: 'map',
+    style,
+    center: [8.96, 48.35],  // Hechingen, Baden-Württemberg
+    zoom: 13,
+    pitch: 55,
+    bearing: -15,
+    antialias: true
+  });
+
+  map.addControl(new maplibregl.NavigationControl(), 'top-right');
+  map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+  map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+
+  map.on('style.load', onStyleLoad);
+  
+  // Eigener Map-Click Handler: Prüfen ob ein WP geklickt wurde, ansonsten neuer Punkt
+  map.on('click', async (e) => {
+    // Falls das Map-Element noch nicht komplett geladen ist
+    if (!map.getLayer('vn-wps')) return onMapClick(e);
+    
+    const features = map.queryRenderedFeatures(e.point, { layers: ['vn-wps'] });
+    if (features.length > 0) {
+      // WP wurde geklickt -> Context-Menu / Popup öffnen
+      const wpFeature = features[0];
+      const idx = wpFeature.properties.index;
+      const coords = wpFeature.geometry.coordinates;
+      
+      new maplibregl.Popup({ closeButton: false, anchor: 'bottom', offset: 12 })
+        .setLngLat(coords)
+        .setHTML(`
+          <div style="text-align: center;">
+            <div style="font-size:14px; font-weight:700; color:var(--text); margin-bottom: 8px;">
+              Wegpunkt ${idx + 1}
+            </div>
+            <button class="btn red" style="width:100%; justify-content:center; padding: 6px;" 
+                    onclick="removeWp(${idx}); document.querySelector('.maplibregl-popup').remove();">
+              ✕ Löschen
+            </button>
+          </div>
+        `)
+        .addTo(map);
+    } else {
+      // Normaler Klick auf die Karte -> Neuer Wegpunkt
+      onMapClick(e);
+    }
+  });
+
+  map.on('moveend', () => { if (meshOn) updateMesh(); });
+
+  // Route hover tooltip
+  map.on('mouseenter', 'route-segments', e => {
+    const tt = document.getElementById('rt-tooltip');
+    const g  = e.features[0].properties.grade;
+    const el = e.features[0].properties.elev;
+    tt.style.display = 'block';
+    tt.innerHTML = `<span style="color:${gradeColor(+g)}">▲ ${(+g).toFixed(1)}%</span>` +
+      (el ? `  <span style="color:var(--muted)">  ${Math.round(+el)} m</span>` : '');
+  });
+  map.on('mousemove', 'route-segments', e => {
+    const tt = document.getElementById('rt-tooltip');
+    const pt = map.project(e.lngLat);
+    tt.style.left = (pt.x + 12) + 'px';
+    tt.style.top  = (pt.y - 12) + 'px';
+    const g  = e.features[0].properties.grade;
+    const el = e.features[0].properties.elev;
+    tt.innerHTML = `<span style="color:${gradeColor(+g)}">▲ ${(+g).toFixed(1)}%</span>` +
+      (el ? `  <span style="color:var(--muted)">  ${Math.round(+el)} m</span>` : '');
+    map.getCanvas().style.cursor = 'pointer';
+  });
+  map.on('mouseleave', 'route-segments', () => {
+    document.getElementById('rt-tooltip').style.display = 'none';
+    map.getCanvas().style.cursor = 'crosshair';
+  });
+}
+
+function buildFallbackStyle() {
+  return {
+    version: 8,
+    glyphs: 'https://fonts.openmaptiles.org/{fontstack}/{range}.pbf',
+    sources: {
+      osm: {
+        type: 'raster',
+        tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+        tileSize: 256,
+        attribution: '© OpenStreetMap'
+      }
+    },
+    layers: [{
+      id: 'osm-tiles', type: 'raster', source: 'osm',
+      paint: { 'raster-opacity': 1, 'raster-saturation': -0.3, 'raster-brightness-max': 0.7 }
+    }]
+  };
+}
+
+// ═══════════════════════════════════════════════════
+// STYLE LOAD  – add all custom layers
+// ═══════════════════════════════════════════════════
+function onStyleLoad() {
+  try {
+    if (apiKey) {
+      if (!map.getSource('terrain-dem')) {
+        map.addSource('terrain-dem', {
+          type: 'raster-dem',
+          url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${apiKey}`,
+          tileSize: 256
+        });
+      }
+      map.setTerrain({ source: 'terrain-dem', exaggeration: 1.5 });
+      document.getElementById('btn-terrain').classList.add('active');
+    }
+
+    // Collect tile layer IDs for hide toggle safely
+    mapLayerIds = (map.getStyle().layers || [])
+      .filter(l => !l.id.startsWith('vn-') && l.id !== 'route-segments')
+      .map(l => l.id);
+
+    addCustomLayers();
+    rebuildRoute();
+    if (meshOn) updateMesh();
+  } catch(e) {
+    console.error("Map layer init error:", e);
+  }
+}
+
+function addCustomLayers() {
+  // ── Mesh grid ──
+  if (!map.getSource('vn-mesh')) {
+    map.addSource('vn-mesh', { type: 'geojson', data: emptyFC() });
+  }
+  if (!map.getLayer('vn-mesh')) {
+    map.addLayer({
+      id: 'vn-mesh', type: 'line', source: 'vn-mesh',
+      paint: { 'line-color': '#00d4ff', 'line-width': 0.6, 'line-opacity': 0.3 },
+      layout: { visibility: meshOn ? 'visible' : 'none' }
+    });
+  }
+
+  // ── Route shadow ──
+  if (!map.getSource('vn-shadow')) {
+    map.addSource('vn-shadow', { type: 'geojson', data: emptyFC() });
+  }
+  if (!map.getLayer('vn-shadow')) {
+    map.addLayer({
+      id: 'vn-shadow', type: 'line', source: 'vn-shadow',
+      paint: { 'line-color': '#000', 'line-width': 10, 'line-opacity': 0.25, 'line-blur': 6 }
+    });
+  }
+
+  // ── Route gradient segments ──
+  if (!map.getSource('vn-route')) {
+    map.addSource('vn-route', { type: 'geojson', data: emptyFC() });
+  }
+  if (!map.getLayer('route-segments')) {
+    map.addLayer({
+      id: 'route-segments', type: 'line', source: 'vn-route',
+      paint: {
+        'line-color': ['get', 'color'],
+        'line-width': 5,
+        'line-opacity': 0.95
+      },
+      layout: { 'line-join': 'round', 'line-cap': 'round' }
+    });
+  }
+
+  // ── Waypoint circles ──
+  if (!map.getSource('vn-wps')) {
+    map.addSource('vn-wps', { type: 'geojson', data: emptyFC() });
+  }
+  if (!map.getLayer('vn-wps-shadow')) {
+    map.addLayer({
+      id: 'vn-wps-shadow', type: 'circle', source: 'vn-wps',
+      paint: { 'circle-radius': 14, 'circle-color': '#000', 'circle-opacity': 0.4, 'circle-blur': 1 }
+    });
+  }
+  if (!map.getLayer('vn-wps')) {
+    map.addLayer({
+      id: 'vn-wps', type: 'circle', source: 'vn-wps',
+      paint: {
+        'circle-radius': 9,
+        'circle-color': ['get', 'color'],
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#fff'
+      }
+    });
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// MAP CLICK  → add waypoint
+// ═══════════════════════════════════════════════════
+async function onMapClick(e) {
+  const { lng, lat } = e.lngLat;
+  const idx = waypoints.length;
+  waypoints.push({ lng, lat, label: `P${idx + 1}` });
+  renderWpMarkers();
+  renderWpList();
+
+  if (waypoints.length >= 2) {
+    await routeSegment(idx - 1, idx);
+  } else {
+    updateWpDistances(); // Update distances also when setting first point
+    renderElevChart();
+  }
+  if (meshOn) updateMesh();
+}
+
+// ═══════════════════════════════════════════════════
+// ROUTING (OSRM)
+// ═══════════════════════════════════════════════════
+async function routeSegment(fromIdx, toIdx) {
+  const a = waypoints[fromIdx], b = waypoints[toIdx];
+  showLoad('Route wird berechnet…');
+  try {
+    const url =
+      `https://router.project-osrm.org/route/v1/cycling/` +
+      `${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+    const res  = await fetch(url);
+    const data = await res.json();
+    if (!data.routes?.length) { hideLoad(); return; }
+    const coords = data.routes[0].geometry.coordinates;
+
+    showLoad('Höhendaten werden geladen…');
+    const elevs = await fetchElevations(coords);
+    segments.push({ coords, elevs });
+    rebuildRoute();
+  } catch(err) {
+    console.error(err);
+  }
+  hideLoad();
+}
+
+// ═══════════════════════════════════════════════════
+// ELEVATION  (Open-Meteo – free, no key)
+// ═══════════════════════════════════════════════════
+async function fetchElevations(coords) {
+  // Fix 400 Bad Request: Limit length and decimal precision
+  const maxPoints = 70;
+  const step = Math.max(1, Math.floor(coords.length / maxPoints));
+  const idx  = [];
+  for (let i = 0; i < coords.length; i += step) idx.push(i);
+  if (idx[idx.length - 1] !== coords.length - 1) idx.push(coords.length - 1);
+  const sampled = idx.map(i => coords[i]);
+
+  try {
+    // Begrenze auf 5 Nachkommastellen um URL kurz zu halten
+    const lats = sampled.map(c => c[1].toFixed(5)).join(',');
+    const lngs = sampled.map(c => c[0].toFixed(5)).join(',');
+    
+    const res  = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lats}&longitude=${lngs}`);
+    if (!res.ok) throw new Error("Elevation API fail");
+    
+    const data = await res.json();
+    const sampledElevs = data.elevation;
+
+    // Interpolate back to full length
+    const out = [];
+    for (let i = 0; i < coords.length; i++) {
+      const si = i / step;
+      const lo = Math.floor(si);
+      const hi = Math.min(lo + 1, sampledElevs.length - 1);
+      const t  = si - lo;
+      out.push(sampledElevs[lo] * (1 - t) + sampledElevs[hi] * t);
+    }
+    return out;
+  } catch(e) {
+    console.warn("Elevation fetch failed, using 0m", e);
+    return coords.map(() => 0);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// CALCULATE WP DISTANCES FOR CHART
+// ═══════════════════════════════════════════════════
+function updateWpDistances() {
+  window.wpDistancesKm = [0]; // Erster WP ist immer bei 0
+  let runningDist = 0;
+  
+  for (const seg of segments) {
+    let segDist = 0;
+    const c = seg.coords;
+    for (let i = 0; i < c.length - 1; i++) {
+      const [x1, y1] = c[i], [x2, y2] = c[i+1];
+      const dx = (x2 - x1) * 111320 * Math.cos(y1 * Math.PI / 180);
+      const dy = (y2 - y1) * 110540;
+      segDist += Math.sqrt(dx * dx + dy * dy);
+    }
+    runningDist += segDist;
+    window.wpDistancesKm.push(runningDist / 1000);
+  }
+}
+
+// ═══════════════════════════════════════════════════
+// BUILD FULL ROUTE
+// ═══════════════════════════════════════════════════
+function rebuildRoute() {
+  fullRoute.coords = [];
+  fullRoute.elevs  = [];
+  for (const seg of segments) {
+    fullRoute.coords.push(...seg.coords);
+    fullRoute.elevs.push(...seg.elevs);
+  }
+  updateWpDistances();
+  renderRoute();
+  renderStats();
+  renderElevChart();
+}
+
+// ═══════════════════════════════════════════════════
+// RENDER ROUTE LAYER
+// ═══════════════════════════════════════════════════
+function renderRoute() {
+  const { coords, elevs } = fullRoute;
+  if (!map.getSource('vn-route')) return;
+
+  if (coords.length < 2) {
+    map.getSource('vn-route').setData(emptyFC());
+    map.getSource('vn-shadow').setData(emptyFC());
+    return;
+  }
+
+  const feats = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [x1, y1] = coords[i];
+    const [x2, y2] = coords[i + 1];
+    const e1 = elevs[i]   || 0;
+    const e2 = elevs[i+1] || 0;
+    const dx = (x2 - x1) * 111320 * Math.cos(y1 * Math.PI / 180);
+    const dy = (y2 - y1) * 110540;
+    const dist = Math.sqrt(dx*dx + dy*dy);
+    const grade = dist > 0.5 ? ((e2 - e1) / dist) * 100 : 0;
+    feats.push({
+      type: 'Feature',
+      properties: { color: gradeColor(grade), grade: grade.toFixed(1), elev: e1.toFixed(0) },
+      geometry: { type: 'LineString', coordinates: [[x1,y1],[x2,y2]] }
+    });
+  }
+
+  map.getSource('vn-route').setData({ type: 'FeatureCollection', features: feats });
+  map.getSource('vn-shadow').setData({
+    type: 'FeatureCollection',
+    features: [{ type: 'Feature', geometry: { type: 'LineString', coordinates: coords } }]
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// WAYPOINT MARKERS
+// ═══════════════════════════════════════════════════
+function renderWpMarkers() {
+  if (!map.getSource('vn-wps')) return;
+  map.getSource('vn-wps').setData({
+    type: 'FeatureCollection',
+    features: waypoints.map((wp, i) => ({
+      type: 'Feature',
+      properties: {
+        index: i,  // Wichtig für den Klick im Popup
+        color: i === 0 ? '#00e676' : i === waypoints.length - 1 ? '#ff1744' : '#ffd600'
+      },
+      geometry: { type: 'Point', coordinates: [wp.lng, wp.lat] }
+    }))
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// WAYPOINTS LIST
+// ═══════════════════════════════════════════════════
+function renderWpList() {
+  document.getElementById('wp-count').textContent = waypoints.length;
+  const list = document.getElementById('wp-list');
+
+  if (waypoints.length === 0) {
+    list.innerHTML = '<div class="wp-empty">Klicke auf die Karte<br>um Wegpunkte zu setzen</div>';
+    return;
+  }
+
+  list.innerHTML = waypoints.map((wp, i) => {
+    const isFirst = i === 0;
+    const isLast  = i === waypoints.length - 1;
+    const color   = isFirst ? '#00e676' : isLast ? '#ff1744' : '#ffd600';
+    const tag     = isFirst ? 'START' : isLast ? 'ZIEL' : `WP ${i}`;
+    return `
+      <div class="wp-item">
+        <div class="wp-num" style="background:${color};color:#000">${i+1}</div>
+        <div>
+          <div class="wp-label" style="color:${color}">${tag}</div>
+          <div class="wp-coords">${wp.lat.toFixed(5)}°N  ${wp.lng.toFixed(5)}°E</div>
+        </div>
+        <button class="wp-remove" onclick="removeWp(${i})" title="Entfernen">×</button>
+      </div>`;
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════
+function renderStats() {
+  const { coords, elevs } = fullRoute;
+  if (coords.length < 2) {
+    ['s-dist','s-up','s-down','s-grade'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+
+  let dist = 0, up = 0, dn = 0, maxG = 0;
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [x1,y1] = coords[i], [x2,y2] = coords[i+1];
+    const dx = (x2-x1)*111320*Math.cos(y1*Math.PI/180);
+    const dy = (y2-y1)*110540;
+    const d  = Math.sqrt(dx*dx + dy*dy);
+    dist += d;
+    const de = (elevs[i+1]||0) - (elevs[i]||0);
+    if (de > 0) up += de; else dn += Math.abs(de);
+    if (d > 0) maxG = Math.max(maxG, Math.abs(de/d)*100);
+  }
+
+  document.getElementById('s-dist').textContent =
+    dist >= 1000 ? `${(dist/1000).toFixed(1)} km` : `${Math.round(dist)} m`;
+  document.getElementById('s-up').textContent   = `${Math.round(up)} m`;
+  document.getElementById('s-down').textContent = `${Math.round(dn)} m`;
+  document.getElementById('s-grade').textContent = `${maxG.toFixed(1)}%`;
+}
+
+// ═══════════════════════════════════════════════════
+// ELEVATION CHART
+// ═══════════════════════════════════════════════════
+function renderElevChart() {
+  const { coords, elevs } = fullRoute;
+  if (elevs.length === 0) {
+    if (elevChart) { elevChart.data.labels=[]; elevChart.data.datasets[0].data=[]; elevChart.update('none'); }
+    return;
+  }
+
+  // Compute cumulative distances
+  const dists = [0];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const [x1,y1]=coords[i],[x2,y2]=coords[i+1];
+    const dx=(x2-x1)*111320*Math.cos(y1*Math.PI/180);
+    const dy=(y2-y1)*110540;
+    dists.push(dists[dists.length-1]+Math.sqrt(dx*dx+dy*dy));
+  }
+
+  // Downsample to 300 pts
+  const N = Math.min(elevs.length, 300);
+  const step = Math.floor(elevs.length / N);
+  const labels = [], data = [];
+  for (let i = 0; i < elevs.length; i += step) {
+    labels.push((dists[Math.min(i, dists.length-1)] / 1000).toFixed(2));
+    data.push(Math.round(elevs[i]));
+  }
+
+  if (elevChart) {
+    elevChart.data.labels = labels;
+    elevChart.data.datasets[0].data = data;
+    elevChart.update('none');
+    return;
+  }
+
+  const ctx = document.getElementById('elev-chart-canvas').getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 100);
+  grad.addColorStop(0, 'rgba(0,212,255,.35)');
+  grad.addColorStop(1, 'rgba(0,212,255,0)');
+
+  elevChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data,
+        fill: true,
+        backgroundColor: grad,
+        borderColor: '#00d4ff',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        tension: 0.35
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 400 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          mode: 'index', intersect: false,
+          backgroundColor: 'rgba(8,11,15,.9)',
+          borderColor: '#1e2a38', borderWidth: 1,
+          titleColor: '#5a7080', bodyColor: '#00d4ff',
+          titleFont: { family: 'JetBrains Mono', size: 10 },
+          bodyFont: { family: 'JetBrains Mono', size: 12 },
+          callbacks: {
+            title: it => `${it[0].label} km`,
+            label: it => `${it.raw} m ü.NN`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#5a7080', maxTicksLimit: 8, font: { size: 9, family: 'JetBrains Mono' } },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        },
+        y: {
+          ticks: { color: '#5a7080', maxTicksLimit: 5, font: { size: 9, family: 'JetBrains Mono' } },
+          grid: { color: 'rgba(255,255,255,0.04)' }
+        }
+      }
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════
+// MESH GRID
+// ═══════════════════════════════════════════════════
+function updateMesh() {
+  if (!map.getSource('vn-mesh')) return;
+  const c  = map.getCenter();
+  const z  = map.getZoom();
+  const r  = Math.max(0.02, 0.25 / Math.pow(2, z - 11));
+  const sp = r / 12;
+  const lines = [];
+
+  for (let lat = c.lat - r; lat <= c.lat + r; lat += sp) {
+    lines.push({ type: 'Feature', geometry: {
+      type: 'LineString',
+      coordinates: [[c.lng - r, lat],[c.lng + r, lat]]
+    }});
+  }
+  for (let lng = c.lng - r; lng <= c.lng + r; lng += sp) {
+    lines.push({ type: 'Feature', geometry: {
+      type: 'LineString',
+      coordinates: [[lng, c.lat - r],[lng, c.lat + r]]
+    }});
+  }
+  map.getSource('vn-mesh').setData({ type: 'FeatureCollection', features: lines });
+}
+
+// ═══════════════════════════════════════════════════
+// TOGGLE CONTROLS
+// ═══════════════════════════════════════════════════
+function toggleTerrain() {
+  if (!apiKey) { alert('3D-Terrain benötigt einen MapTiler API Key.'); return; }
+  terrainOn = !terrainOn;
+  map.setTerrain(terrainOn ? { source: 'terrain-dem', exaggeration: +document.getElementById('exag-slider').value } : null);
+  document.getElementById('btn-terrain').classList.toggle('active', terrainOn);
+}
+
+function setExaggeration(v) {
+  document.getElementById('exag-val').textContent = `${parseFloat(v).toFixed(1)}×`;
+  if (apiKey && terrainOn) map.setTerrain({ source: 'terrain-dem', exaggeration: +v });
+}
+
+function toggleMesh() {
+  meshOn = !meshOn;
+  if (map.getLayer('vn-mesh')) {
+    map.setLayoutProperty('vn-mesh', 'visibility', meshOn ? 'visible' : 'none');
+    if (meshOn) updateMesh();
+  }
+  document.getElementById('btn-mesh').classList.toggle('active', meshOn);
+}
+
+function toggleHideMap() {
+  mapHidden = !mapHidden;
+  const vis = mapHidden ? 'none' : 'visible';
+  for (const id of mapLayerIds) {
+    try { map.setLayoutProperty(id, 'visibility', vis); } catch(e) {}
+  }
+  document.getElementById('btn-hide-map').classList.toggle('active', mapHidden);
+  document.getElementById('btn-hide-map').textContent = mapHidden ? '👁 Karte ein' : '👁 Karte';
+}
+
+function toggleSatellite() {
+  if (!apiKey) { alert('Satellit benötigt einen MapTiler API Key.'); return; }
+  satelliteOn = !satelliteOn;
+  const style = satelliteOn
+    ? `https://api.maptiler.com/maps/satellite/style.json?key=${apiKey}`
+    : `https://api.maptiler.com/maps/outdoor-v2/style.json?key=${apiKey}`;
+  map.setStyle(style);
+  document.getElementById('btn-satellite').classList.toggle('active', satelliteOn);
+}
+
+// ═══════════════════════════════════════════════════
+// UNDO / REMOVE / CLEAR
+// ═══════════════════════════════════════════════════
+function undoWaypoint() {
+  if (waypoints.length === 0) return;
+  waypoints.pop();
+  if (segments.length > 0) segments.pop();
+  rebuildRoute();
+  renderWpMarkers();
+  renderWpList();
+}
+
+async function removeWp(idx) {
+  waypoints.splice(idx, 1);
+  waypoints.forEach((wp, i) => wp.label = `P${i+1}`);
+  segments = []; // Alles neu berechnen
+  renderWpMarkers();
+  renderWpList();
+  
+  if (waypoints.length >= 2) {
+    await rerouteAll();
+  } else {
+    rebuildRoute();
+  }
+}
+
+async function rerouteAll() {
+  showLoad('Route wird neu berechnet…');
+  segments = [];
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    const a = waypoints[i], b = waypoints[i+1];
+    try {
+      const url = `https://router.project-osrm.org/route/v1/cycling/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`;
+      const res  = await fetch(url);
+      const data = await res.json();
+      if (!data.routes?.length) continue;
+      const coords = data.routes[0].geometry.coordinates;
+      const elevs  = await fetchElevations(coords);
+      segments.push({ coords, elevs });
+    } catch(e) {}
+  }
+  rebuildRoute();
+  hideLoad();
+}
+
+function clearAll() {
+  waypoints = []; segments = []; window.wpDistancesKm = [];
+  fullRoute = { coords: [], elevs: [] };
+  ['vn-route','vn-shadow','vn-wps'].forEach(id => {
+    if (map.getSource(id)) map.getSource(id).setData(emptyFC());
+  });
+  renderWpList();
+  renderStats();
+  if (elevChart) { elevChart.data.labels=[]; elevChart.data.datasets[0].data=[]; elevChart.update('none'); }
+}
+
+// ═══════════════════════════════════════════════════
+// EXPORT TO GOOGLE MAPS
+// ═══════════════════════════════════════════════════
+function exportGMaps() {
+  if (waypoints.length < 2) { alert('Mindestens 2 Wegpunkte nötig.'); return; }
+  const origin = `${waypoints[0].lat},${waypoints[0].lng}`;
+  const dest   = `${waypoints[waypoints.length-1].lat},${waypoints[waypoints.length-1].lng}`;
+  const via    = waypoints.slice(1,-1).map(w => `${w.lat},${w.lng}`).join('|');
+  
+  // Richtiges URL Format für die Maps API
+  let url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=bicycling`;
+  if (via) url += `&waypoints=${via}`;
+  
+  window.open(url, '_blank');
+}
+
+// ═══════════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════════
+function emptyFC() { return { type: 'FeatureCollection', features: [] }; }
+function showLoad(t) { document.getElementById('load-txt').textContent = t; document.getElementById('loading').style.display = 'flex'; }
+function hideLoad()  { document.getElementById('loading').style.display = 'none'; }
+</script>
+</body>
+</html>
