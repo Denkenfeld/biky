@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CycleQuest 3D</title>
+    
+    <!-- MapLibre GL JS & CSS -->
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet" />
+    <!-- Canvas Confetti für den Effekt -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', sans-serif; background: #111; color: white; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
+        
+        #ui-overlay {
+            position: absolute; top: 10px; left: 10px; right: 10px;
+            display: flex; flex-direction: column; gap: 10px; pointer-events: none;
+        }
+
+        .stats-card {
+            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(10px);
+            padding: 15px; border-radius: 15px; border: 1px solid #ffd700;
+            pointer-events: auto; display: flex; justify-content: space-between; align-items: center;
+        }
+
+        #controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            display: flex; gap: 10px; pointer-events: auto;
+        }
+
+        .btn {
+            background: #ffd700; color: black; border: none; padding: 15px 30px;
+            border-radius: 50px; font-weight: bold; font-size: 1.1rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3); transition: 0.2s;
+        }
+
+        .btn:active { transform: scale(0.95); }
+        .btn:disabled { background: #555; }
+
+        .coin-counter { font-size: 1.5rem; color: #ffd700; font-weight: bold; }
+        .level-badge { background: #ffd700; color: black; padding: 2px 8px; border-radius: 5px; font-size: 0.8rem; }
+
+        /* Münz-Animation */
+        .coin-marker {
+            width: 30px; height: 30px;
+            background: radial-gradient(circle, #fff700 0%, #ffa200 100%);
+            border-radius: 50%; border: 2px solid #fff;
+            box-shadow: 0 0 15px #ffd700;
+            animation: bounce 1s infinite alternate;
+        }
+
+        @keyframes bounce { from { transform: translateY(0); } to { transform: translateY(-10px); } }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="ui-overlay">
+    <div class="stats-card">
+        <div>
+            <div id="level-display">Level 1 <span class="level-badge" id="difficulty-tag">25.0 km</span></div>
+            <div class="coin-counter">🪙 <span id="collected-coins">0</span> / <span id="total-coins">10</span></div>
+        </div>
+        <div style="text-align: right;">
+            <div id="dist-info">Suche GPS...</div>
+        </div>
+    </div>
+</div>
+
+<div id="controls">
+    <button id="go-btn" class="btn">GO! ROUTE STARTEN</button>
+</div>
+
+<script>
+    const MT_API_KEY = '0h9bkxDZifPxKncVxFXv';
+    let userState = {
+        level: 1,
+        coinsToCollect: 10,
+        baseDist: 25, // km
+        collected: 0,
+        currentRoute: null,
+        userPos: null
+    };
+
+    // Initialisiere MapLibre mit MapTiler Satellit & 3D
+    const map = new maplibregl.Map({
+        container: 'map',
+        style: `https://api.maptiler.com/maps/hybrid/style.json?key=${MT_API_KEY}`,
+        center: [10.4515, 51.1657], // Deutschland Mitte
+        zoom: 14,
+        pitch: 60,
+        maxPitch: 85
+    });
+
+    // 3D Terrain & Wolken
+    map.on('load', () => {
+        map.addSource('terrain', {
+            type: 'raster-dem',
+            url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MT_API_KEY}`,
+            tileSize: 256
+        });
+        map.setTerrain({ source: 'terrain', exaggeration: 1.5 });
+
+        // User Standort verfolgen
+        navigator.geolocation.watchPosition(updateLocation, console.error, { enableHighAccuracy: true });
+    });
+
+    function updateLocation(pos) {
+        const { longitude, latitude } = pos.coords;
+        userState.userPos = [longitude, latitude];
+        
+        // Prüfe Kollision mit Münzen
+        checkCoinCollection(longitude, latitude);
+    }
+
+    async function generateRoute() {
+        if (!userState.userPos) return alert("Warte auf GPS Signal...");
+        
+        const [lon, lat] = userState.userPos;
+        const dist = userState.baseDist * Math.pow(1.01, userState.level - 1);
+        
+        // BRouter Roundtrip API (vereinfacht via lon/lat + Seed für Zufall)
+        // Hinweis: BRouter hat keinen nativen "Roundtrip" Endpunkt wie Garmin, 
+        // daher simulieren wir hier einen Polygon-Kurs um den Punkt.
+        const angle = Math.random() * Math.PI * 2;
+        const radius = (dist / 6) / 111; // Grobe Umrechnung km in Grad
+        
+        // Wir erzeugen 3 Wegpunkte für ein Dreieck (Rundweg)
+        const p1 = `${lon},${lat}`;
+        const p2 = `${lon + Math.cos(angle) * radius},${lat + Math.sin(angle) * radius}`;
+        const p3 = `${lon + Math.cos(angle + 2) * radius},${lat + Math.sin(angle + 2) * radius}`;
+        
+        const url = `https://brouter.de/brouter/buildurl?lonlats=${p1}|${p2}|${p3}|${p1}&profile=trekking&alternativeidx=0&format=geojson`;
+
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            drawRoute(data);
+            placeCoins(data);
+            
+            document.getElementById('difficulty-tag').innerText = `${dist.toFixed(1)} km`;
+        } catch (e) {
+            alert("Fehler beim Routing. Versuche es gleich nochmal.");
+        }
+    }
+
+    function drawRoute(geojson) {
+        if (map.getSource('route')) {
+            map.getSource('route').setData(geojson);
+        } else {
+            map.addSource('route', { type: 'geojson', data: geojson });
+            map.addLayer({
+                id: 'route',
+                type: 'line',
+                source: 'route',
+                layout: { 'line-join': 'round', 'line-cap': 'round' },
+                paint: { 'line-color': '#00ffcc', 'line-width': 6, 'line-opacity': 0.8 }
+            });
+        }
+        
+        // Kamera auf Route zentrieren
+        const coordinates = geojson.features[0].geometry.coordinates;
+        const bounds = coordinates.reduce((acc, coord) => acc.extend(coord), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+        map.fitBounds(bounds, { padding: 50 });
+    }
+
+    let activeMarkers = [];
+    function placeCoins(geojson) {
+        // Entferne alte Münzen
+        activeMarkers.forEach(m => m.remove());
+        activeMarkers = [];
+        userState.collected = 0;
+        userState.coinsToCollect = 10 + Math.floor(userState.level / 10);
+        updateUI();
+
+        const coords = geojson.features[0].geometry.coordinates;
+        const step = Math.floor(coords.length / userState.coinsToCollect);
+
+        for (let i = 1; i <= userState.coinsToCollect; i++) {
+            const pos = coords[i * step - 1] || coords[coords.length - 2];
+            
+            const el = document.createElement('div');
+            el.className = 'coin-marker';
+            
+            const marker = new maplibregl.Marker({ element: el })
+                .setLngLat(pos)
+                .addTo(map);
+            
+            activeMarkers.push({ marker, collected: false, pos });
+        }
+    }
+
+    function checkCoinCollection(lon, lat) {
+        activeMarkers.forEach((mObj, index) => {
+            if (!mObj.collected) {
+                const dist = getDistance(lon, lat, mObj.pos[0], mObj.pos[1]);
+                if (dist < 0.03) { // 30 Meter Fangradius
+                    collectCoin(index);
+                }
+            }
+        });
+    }
+
+    function collectCoin(index) {
+        activeMarkers[index].collected = true;
+        activeMarkers[index].marker.remove();
+        userState.collected++;
+        
+        // Effekt
+        confetti({ particleCount: 100, spread: 70, origin: { y: 0.6 }, colors: ['#ffd700', '#ffffff'] });
+        
+        updateUI();
+
+        if (userState.collected >= userState.coinsToCollect) {
+            nextLevel();
+        }
+    }
+
+    function nextLevel() {
+        userState.level++;
+        alert(`LEVEL GESCHAFFT! Willkommen in Level ${userState.level}. Die Strecke wird nun 1% härter.`);
+        generateRoute();
+    }
+
+    function updateUI() {
+        document.getElementById('collected-coins').innerText = userState.collected;
+        document.getElementById('total-coins').innerText = userState.coinsToCollect;
+        document.getElementById('level-display').innerHTML = `Level ${userState.level} <span class="level-badge" id="difficulty-tag">${(userState.baseDist * Math.pow(1.01, userState.level - 1)).toFixed(1)} km</span>`;
+    }
+
+    function getDistance(lon1, lat1, lon2, lat2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    document.getElementById('go-btn').addEventListener('click', generateRoute);
+
+</script>
+</body>
+</html>
