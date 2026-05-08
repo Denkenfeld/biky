@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CycleQuest 3D – Voxel Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root { --gold:#ffd700; --cyan:#00fbff; --bg:#0a0a14; }
+        * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+        body { background:var(--bg); color:white; overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; }
+
+        #voxel-canvas { position:absolute; inset:0; z-index:0; display:block; }
+
+        /* ── HUD ───────────────────────────────── */
+        #ui-overlay {
+            position:absolute; top:15px; left:15px; right:15px; z-index:10; pointer-events:none;
+        }
+        .stats-card {
+            background:rgba(0,0,0,0.72); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,0.28); border-radius:18px;
+            padding:14px 18px; pointer-events:auto;
+            display:flex; justify-content:space-between; align-items:center;
+            box-shadow:0 4px 24px rgba(0,0,0,.55);
+        }
+        .coin-ctr  { font-size:2rem; color:var(--gold); font-weight:900; line-height:1; }
+        .lvl-badge { background:var(--gold); color:#000; padding:3px 10px; border-radius:8px; font-size:.78rem; font-weight:800; margin-left:8px; }
+        #status-text { font-size:.68rem; color:#888; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:3px; }
+
+        /* ── BUTTONS ───────────────────────────── */
+        #controls {
+            position:absolute; bottom:40px; left:50%; transform:translateX(-50%);
+            display:flex; gap:12px; z-index:10; pointer-events:auto; white-space:nowrap;
+        }
+        .btn {
+            border:none; padding:18px 34px; border-radius:50px;
+            font-weight:900; font-size:1.2rem; cursor:pointer;
+            text-transform:uppercase; letter-spacing:1px; transition:all .15s;
+        }
+        .btn:active { transform:scale(0.90); }
+        .btn:disabled { background:#333!important; color:#666!important; cursor:not-allowed; box-shadow:none!important; }
+        #quest-btn { background:var(--gold); color:#000; box-shadow:0 4px 22px rgba(255,215,0,.35); }
+        #nav-btn   { background:transparent; color:var(--cyan); border:2px solid var(--cyan); box-shadow:0 4px 22px rgba(0,251,255,.15); }
+        #nav-btn.active { background:var(--cyan); color:#000; box-shadow:0 4px 22px rgba(0,251,255,.4); }
+
+        /* ── DIFFICULTY SLIDER ─────────────────── */
+        #difficulty-bar {
+            position:absolute; bottom:116px; left:50%; transform:translateX(-50%);
+            width:min(340px,90vw); z-index:10;
+            background:rgba(0,0,0,0.72); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,.22); border-radius:18px;
+            padding:12px 18px 10px; box-shadow:0 4px 22px rgba(0,0,0,.4);
+        }
+        #diff-labels { display:flex; justify-content:space-between; font-size:.68rem; font-weight:700; margin-bottom:9px; color:#777; }
+        #diff-labels span.active { color:var(--gold); transform:scale(1.1); display:inline-block; }
+        #diff-slider {
+            -webkit-appearance:none; width:100%; height:5px; border-radius:3px; outline:none; cursor:pointer;
+            background:linear-gradient(90deg,#3ddc84 0 25%,#ffd700 25% 50%,#ff8c00 50% 75%,#ff3b3b 75% 100%);
+        }
+        #diff-slider::-webkit-slider-thumb {
+            -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+            background:#fff; border:2.5px solid var(--gold); box-shadow:0 0 8px rgba(255,215,0,.7);
+        }
+        #diff-slider::-moz-range-thumb {
+            width:20px; height:20px; border-radius:50%;
+            background:#fff; border:2.5px solid var(--gold); cursor:pointer;
+        }
+        #diff-km { text-align:center; font-size:.7rem; color:#666; margin-top:6px; letter-spacing:1px; }
+
+        /* ── LOADING ───────────────────────────── */
+        #loading {
+            position:fixed; inset:0; background:rgba(0,0,0,.92); display:none;
+            flex-direction:column; align-items:center; justify-content:center; z-index:999;
+        }
+        .spinner { width:52px; height:52px; border:4px solid #1a1a1a; border-top-color:var(--gold); border-radius:50%; animation:spin .9s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #loading-msg { margin-top:16px; letter-spacing:2.5px; font-weight:700; color:#aaa; font-size:.8rem; }
+    </style>
+</head>
+<body>
+
+<canvas id="voxel-canvas"></canvas>
+
+<div id="loading">
+    <div class="spinner"></div>
+    <p id="loading-msg">⛏ VOXEL WELT WIRD GEBAUT...</p>
+</div>
+
+<div id="ui-overlay">
+    <div class="stats-card">
+        <div>
+            <div id="status-text">GPS SUCHEN...</div>
+            <div style="display:flex;align-items:center">
+                <span id="lvl-disp" style="font-size:1.1rem;font-weight:800">LEVEL 1</span>
+                <span class="lvl-badge" id="diff-tag">-- km</span>
+            </div>
+            <div class="coin-ctr">🪙 <span id="coins-coll">0</span><small style="font-size:.88rem;color:#666"> / <span id="coins-total">10</span></small></div>
+        </div>
+        <div style="text-align:right;line-height:2">
+            <div style="font-size:.64rem;color:var(--cyan);letter-spacing:1px">⛏ VOXEL WORLD</div>
+            <div id="dist-val" style="font-weight:700;color:var(--gold);font-size:.92rem">Quest bereit</div>
+            <div id="nav-status" style="font-size:.64rem;color:#444;letter-spacing:1px">NAVIGATION AUS</div>
+        </div>
+    </div>
+</div>
+
+<div id="difficulty-bar">
+    <div id="diff-labels">
+        <span>🟢 Easy</span><span>🟡 Medium</span><span>🟠 Hard</span><span>🔴 Ultra</span>
+    </div>
+    <input type="range" id="diff-slider" min="0" max="3" step="1" value="0">
+    <div id="diff-km">~15 km</div>
+</div>
+
+<div id="controls">
+    <button id="quest-btn" class="btn">🗺 QUEST</button>
+    <button id="nav-btn"   class="btn" disabled>▶ START</button>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════ */
+const MT_KEY = '0h9bkxDZifPxKncVxFXv';
+const ZOOM   = 12;    // elevation tile zoom  (1 pixel ≈ 24 m at lat 51°)
+const GRID   = 64;    // voxel grid cells per side  →  ~1.5 km × 1.5 km
+const VGAP   = 0.90;  // visual width/depth of each block (gap = 0.10)
+const HMULT  = 0.055; // elevation metres → voxel height units
+
+/* ═══════════════════════════════════════════════════
+   APP STATE
+═══════════════════════════════════════════════════ */
+const S = {
+    level:1, coinsToCollect:10, baseDist:15,
+    collected:0, userPos:null,
+    navigating:false, routeReady:false,
+    terrainCenter:null,     // [lat,lon]
+    routeCoords:null,       // raw GeoJSON coordinate array
+    coinPositions:[],       // [{collected, pos:[lon,lat], mesh}]
+};
+
+/* ═══════════════════════════════════════════════════
+   THREE.JS — RENDERER & SCENE
+═══════════════════════════════════════════════════ */
+const canvas   = document.getElementById('voxel-canvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:false, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(window.innerWidth, window.innerHeight);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8ecae6);   // Minecraft sky blue
+scene.fog = new THREE.FogExp2(0x8ecae6, 0.016); // hazy horizon
+
+const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 350);
+camera.position.set(12, 46, 42);
+camera.lookAt(0, 4, 0);
+
+/* Lighting — Minecraft-style directional sun + soft fill + ambient */
+const sunLight = new THREE.DirectionalLight(0xfff5d0, 1.15);
+sunLight.position.set(-22, 55, 10);
+scene.add(sunLight);
+const fillLight = new THREE.DirectionalLight(0xd0e8ff, 0.30);
+fillLight.position.set(30, 8, 30);
+scene.add(fillLight);
+scene.add(new THREE.AmbientLight(0xffffff, 0.38));
+
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* shared geometries / materials (created once) */
+const TERRAIN_GEO = new THREE.BoxGeometry(VGAP, 1, VGAP);
+const TERRAIN_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+const ROUTE_GEO   = new THREE.BoxGeometry(VGAP * 1.08, 0.38, VGAP * 1.08);
+const ROUTE_MAT   = new THREE.MeshLambertMaterial({ color:0x00fbff, emissive:0x003344, emissiveIntensity:0.55 });
+const COIN_GEO    = new THREE.BoxGeometry(0.55, 0.55, 0.55);
+const COIN_MAT    = new THREE.MeshLambertMaterial({ color:0xffd700, emissive:0x442200, emissiveIntensity:0.65 });
+const PLAYER_GEO  = new THREE.CylinderGeometry(0.3, 0.3, 0.9, 8);
+const PLAYER_MAT  = new THREE.MeshLambertMaterial({ color:0xff3333, emissive:0x220000, emissiveIntensity:0.4 });
+
+/* scene objects */
+let terrainInst = null;
+let routeInst   = null;
+let coin3D      = [];
+let playerMesh  = null;
+let elevGrid    = null;
+let minElev     = 0;
+let gridCX      = 0;   // fractional tile-X of grid centre
+let gridCY      = 0;   // fractional tile-Y of grid centre
+
+/* ═══════════════════════════════════════════════════
+   GEO ↔ TILE ↔ VOXEL COORDINATE MATH
+═══════════════════════════════════════════════════ */
+const lonToTX = (lon, z) => (lon + 180) / 360 * (1 << z);
+const latToTY = (lat, z) => {
+    const s = Math.sin(lat * Math.PI / 180);
+    return (1 - Math.log((1 + s) / (1 - s)) / (2 * Math.PI)) / 2 * (1 << z);
+};
+const rgbToElev = (r, g, b) => -10000 + (r * 65536 + g * 256 + b) * 0.1;
+
+/* geo → voxel grid index */
+function geoToGrid(lat, lon) {
+    return {
+        i: Math.round(lonToTX(lon, ZOOM) - gridCX + GRID / 2),
+        j: Math.round(latToTY(lat, ZOOM) - gridCY + GRID / 2),
+    };
+}
+
+/* voxel grid index → Three.js world position */
+function gridToWorld(i, j) {
+    const ii = Math.max(0, Math.min(GRID - 1, i));
+    const jj = Math.max(0, Math.min(GRID - 1, j));
+    const elev = elevGrid ? elevGrid[jj * GRID + ii] : 300;
+    const h = Math.max(1, Math.round((elev - minElev) * HMULT + 1));
+    return { x: i - GRID / 2, y: h, z: j - GRID / 2 };
+}
+
+/* Haversine distance in km */
+function getDist(lo1, la1, lo2, la2) {
+    const R = 6371, dLa = (la2-la1)*Math.PI/180, dLo = (lo2-lo1)*Math.PI/180;
+    const a = Math.sin(dLa/2)**2 + Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+/* ═══════════════════════════════════════════════════
+   BIOME COLOURS  (Minecraft-inspired palette)
+═══════════════════════════════════════════════════ */
+function biomeColor(elev) {
+    const h = elev - minElev; // height above local base
+    if (elev <= 1)  return new THREE.Color(0x1565C0); // water deep
+    if (elev <  6)  return new THREE.Color(0x1976D2); // water shallow
+    if (h    <  4)  return new THREE.Color(0xF9A825); // sand / beach
+    if (h    < 18)  return new THREE.Color(0x7CB342); // grass
+    if (h    < 55)  return new THREE.Color(0x388E3C); // forest
+    if (h    < 160) return new THREE.Color(0x6D4C41); // earth / dirt
+    if (h    < 380) return new THREE.Color(0x757575); // stone
+    return           new THREE.Color(0xE8EAF6);        // snow
+}
+
+/* ═══════════════════════════════════════════════════
+   TERRAIN TILE LOADING  (MapTiler terrain-rgb PNG)
+═══════════════════════════════════════════════════ */
+async function loadTile(tx, ty) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                const c = document.createElement('canvas');
+                c.width = c.height = 256;
+                const ctx = c.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                resolve(ctx.getImageData(0, 0, 256, 256).data);
+            } catch(e) { resolve(null); } // CORS block → procedural fallback
+        };
+        img.onerror = () => resolve(null);
+        img.src = `https://api.maptiler.com/tiles/terrain-rgb-v2/${ZOOM}/${tx}/${ty}.png?key=${MT_KEY}`;
+    });
+}
+
+async function loadTerrain(lat, lon) {
+    document.getElementById('loading-msg').innerText = '⛏ VOXEL TERRAIN LADEN...';
+    document.getElementById('loading').style.display = 'flex';
+
+    S.terrainCenter = [lat, lon];
+    gridCX = lonToTX(lon, ZOOM);
+    gridCY = latToTY(lat, ZOOM);
+    const half = GRID / 2;
+
+    /* collect unique tiles */
+    const needed = new Map();
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+        const tx = Math.floor(gridCX + (i - half));
+        const ty = Math.floor(gridCY + (j - half));
+        needed.set(`${tx}_${ty}`, { tx, ty });
+    }
+
+    /* load all tiles in parallel */
+    const tiles = new Map();
+    await Promise.all([...needed.entries()].map(async ([k, { tx, ty }]) => {
+        tiles.set(k, await loadTile(tx, ty));
+    }));
+
+    /* sample elevation grid */
+    elevGrid = new Float32Array(GRID * GRID);
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+        const px = gridCX + (i - half);
+        const py = gridCY + (j - half);
+        const tx = Math.floor(px), ty = Math.floor(py);
+        const data = tiles.get(`${tx}_${ty}`);
+        if (data) {
+            const pix_x = Math.min(255, Math.max(0, Math.floor((px - tx) * 256)));
+            const pix_y = Math.min(255, Math.max(0, Math.floor((py - ty) * 256)));
+            const idx = (pix_y * 256 + pix_x) * 4;
+            elevGrid[j * GRID + i] = rgbToElev(data[idx], data[idx+1], data[idx+2]);
+        } else {
+            /* procedural fallback — gentle rolling hills */
+            elevGrid[j * GRID + i] = 280
+                + Math.sin(i * 0.38) * 28 + Math.cos(j * 0.29) * 22
+                + Math.sin((i + j) * 0.65) * 12 + Math.sin(i * 0.9 - j * 0.5) * 8;
+        }
+    }
+
+    /* cache min elevation */
+    minElev = Infinity;
+    for (let k = 0; k < GRID * GRID; k++) if (elevGrid[k] < minElev) minElev = elevGrid[k];
+
+    buildTerrain();
+    document.getElementById('loading').style.display = 'none';
+}
+
+/* ═══════════════════════════════════════════════════
+   BUILD VOXEL TERRAIN  (InstancedMesh)
+═══════════════════════════════════════════════════ */
+function buildTerrain() {
+    if (terrainInst) scene.remove(terrainInst);
+
+    terrainInst = new THREE.InstancedMesh(TERRAIN_GEO, TERRAIN_MAT, GRID * GRID);
+    const dummy = new THREE.Object3D();
+    const color = new THREE.Color();
+
+    for (let j = 0; j < GRID; j++) for (let i = 0; i < GRID; i++) {
+        const elev = elevGrid[j * GRID + i];
+        const h    = Math.max(1, Math.round((elev - minElev) * HMULT + 1));
+        dummy.position.set(i - GRID / 2, h / 2, j - GRID / 2);
+        dummy.scale.set(1, h, 1);
+        dummy.updateMatrix();
+        const idx = j * GRID + i;
+        terrainInst.setMatrixAt(idx, dummy.matrix);
+        terrainInst.setColorAt(idx, biomeColor(elev));
+    }
+    terrainInst.instanceMatrix.needsUpdate = true;
+    terrainInst.instanceColor.needsUpdate  = true;
+    scene.add(terrainInst);
+
+    buildRoute();
+    buildCoins3D();
+    updatePlayer3D();
+}
+
+/* ═══════════════════════════════════════════════════
+   ROUTE — cyan glowing blocks on the terrain surface
+═══════════════════════════════════════════════════ */
+function buildRoute() {
+    if (routeInst) scene.remove(routeInst);
+    if (!S.routeCoords) return;
+
+    /* sample route coordinates at sensible density */
+    const step  = Math.max(1, Math.floor(S.routeCoords.length / 600));
+    const cells = new Set();
+    for (let k = 0; k < S.routeCoords.length; k += step) {
+        const [lon, lat] = S.routeCoords[k];
+        const g = geoToGrid(lat, lon);
+        if (g.i >= 0 && g.i < GRID && g.j >= 0 && g.j < GRID)
+            cells.add(`${g.i},${g.j}`);
+    }
+
+    const arr = [...cells].map(s => s.split(',').map(Number));
+    if (!arr.length) return;
+
+    routeInst = new THREE.InstancedMesh(ROUTE_GEO, ROUTE_MAT, arr.length);
+    const dummy = new THREE.Object3D();
+    arr.forEach(([i, j], idx) => {
+        const wp = gridToWorld(i, j);
+        dummy.position.set(wp.x, wp.y + 0.2, wp.z);
+        dummy.scale.set(1, 1, 1);
+        dummy.updateMatrix();
+        routeInst.setMatrixAt(idx, dummy.matrix);
+    });
+    routeInst.instanceMatrix.needsUpdate = true;
+    scene.add(routeInst);
+}
+
+/* ═══════════════════════════════════════════════════
+   COINS — spinning gold cubes
+═══════════════════════════════════════════════════ */
+function buildCoins3D() {
+    coin3D.forEach(m => scene.remove(m));
+    coin3D = [];
+
+    S.coinPositions.forEach((c, idx) => {
+        if (c.collected) return;
+        const g  = geoToGrid(c.pos[1], c.pos[0]);
+        if (g.i < 0 || g.i >= GRID || g.j < 0 || g.j >= GRID) return;
+        const wp = gridToWorld(g.i, g.j);
+
+        const mesh = new THREE.Mesh(COIN_GEO, COIN_MAT);
+        mesh.position.set(wp.x, wp.y + 1.8, wp.z);
+        mesh.userData = { baseY: wp.y + 1.8, coinIdx: idx };
+        scene.add(mesh);
+        coin3D.push(mesh);
+        c.mesh = mesh;
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   PLAYER — small red cylinder
+═══════════════════════════════════════════════════ */
+function updatePlayer3D() {
+    if (!S.userPos) return;
+    const [lon, lat] = S.userPos;
+    const g  = geoToGrid(lat, lon);
+    const wp = gridToWorld(g.i, g.j);
+
+    if (!playerMesh) {
+        playerMesh = new THREE.Mesh(PLAYER_GEO, PLAYER_MAT);
+        scene.add(playerMesh);
+    }
+    playerMesh.position.set(wp.x, wp.y + 0.45, wp.z);
+}
+
+/* ═══════════════════════════════════════════════════
+   ANIMATION LOOP
+═══════════════════════════════════════════════════ */
+const _camTarget = new THREE.Vector3(0, 5, 0);
+const _camGoal   = new THREE.Vector3(12, 46, 42);
+
+function animate(ms) {
+    requestAnimationFrame(animate);
+    const t = ms * 0.001;
+
+    /* spinning / floating coins */
+    coin3D.forEach((m, k) => {
+        m.rotation.y = t * 1.9 + k * 1.1;
+        m.rotation.x = Math.sin(t * 0.9 + k) * 0.25;
+        m.position.y = m.userData.baseY + Math.sin(t * 1.8 + k * 0.85) * 0.28;
+    });
+
+    /* route blocks: subtle pulse */
+    if (routeInst) routeInst.material.emissiveIntensity = 0.4 + Math.sin(t * 1.2) * 0.2;
+
+    /* camera */
+    if (S.navigating && playerMesh) {
+        _camTarget.lerp(playerMesh.position, 0.05);
+        _camGoal.set(_camTarget.x + 3, _camTarget.y + 17, _camTarget.z + 22);
+    } else {
+        /* very slow cinematic orbit while idle */
+        const r = 48;
+        _camGoal.set(Math.sin(t * 0.022) * r, 44, Math.cos(t * 0.022) * r);
+        _camTarget.set(0, 4, 0);
+    }
+    camera.position.lerp(_camGoal, 0.07);
+    camera.lookAt(_camTarget);
+
+    renderer.render(scene, camera);
+}
+animate(0);
+
+/* ═══════════════════════════════════════════════════
+   GPS
+═══════════════════════════════════════════════════ */
+window.addEventListener('DOMContentLoaded', () => {
+    loadTerrain(51.16, 10.45); // default: Germany centre
+
+    if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition(onGPS, () => {
+            document.getElementById('status-text').innerText = 'GPS FEHLER';
+        }, { enableHighAccuracy: true });
+    } else {
+        document.getElementById('status-text').innerText = 'KEIN GPS';
+    }
+});
+
+function onGPS(pos) {
+    const { longitude: lon, latitude: lat } = pos.coords;
+    S.userPos = [lon, lat];
+    document.getElementById('status-text').innerText = 'GPS AKTIV ✓';
+
+    updatePlayer3D();
+
+    /* reload terrain when player drifts far from current chunk */
+    if (S.terrainCenter && !S.routeReady) {
+        if (getDist(lat, lon, S.terrainCenter[0], S.terrainCenter[1]) > 0.35)
+            loadTerrain(lat, lon);
+    }
+
+    checkCoinCollection(lon, lat);
+}
+
+/* ═══════════════════════════════════════════════════
+   BROUTER ROUTING FETCH  (with proxy fallback)
+═══════════════════════════════════════════════════ */
+async function timedFetch(url, ms = 9000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try { const r = await fetch(url, { signal: ctrl.signal }); clearTimeout(t); return r; }
+    catch(e) { clearTimeout(t); throw e; }
+}
+
+async function fetchBRouter(lonlats) {
+    const base = `https://brouter.de/brouter?lonlats=${lonlats}&profile=trekking&alternativeidx=0&format=geojson`;
+    const msg  = document.getElementById('loading-msg');
+    const strats = [
+        { l:'ROUTE BERECHNEN...', go:()=>timedFetch(base,10000), parse:r=>r.json() },
+        { l:'PROXY 1...', go:()=>timedFetch(`https://api.allorigins.win/get?url=${encodeURIComponent(base)}`,11000),
+          parse:async r=>{ const j=await r.json(); return JSON.parse(j.contents); } },
+        { l:'PROXY 2...', go:()=>timedFetch(`https://corsproxy.io/?url=${encodeURIComponent(base)}`,9000), parse:r=>r.json() },
+    ];
+    for (const s of strats) {
+        try {
+            msg.innerText = s.l;
+            const res = await s.go();
+            if (!res.ok) continue;
+            const d = await s.parse(res);
+            if (d?.features) return d;
+        } catch(e) { console.warn(s.l, e.message); }
+    }
+    return null;
+}
+
+/* ═══════════════════════════════════════════════════
+   QUEST GENERATION
+═══════════════════════════════════════════════════ */
+async function generateRoute() {
+    if (!S.userPos) { alert('Warte auf GPS-Signal...'); return; }
+
+    document.getElementById('loading').style.display = 'flex';
+    document.getElementById('loading-msg').innerText = 'ROUTE BERECHNEN...';
+    document.getElementById('quest-btn').disabled = true;
+
+    const [lon, lat] = S.userPos;
+    const km   = S.baseDist * Math.pow(1.01, S.level - 1);
+    const rDeg = (km / (2 * Math.PI)) / 111.32;
+    const pts  = [`${lon},${lat}`];
+    const a0   = Math.random() * Math.PI * 2;
+
+    for (let i = 0; i < 6; i++) {
+        const a = a0 + i * (Math.PI / 3);
+        pts.push(
+            `${(lon + Math.cos(a) * (rDeg / Math.cos(lat * Math.PI / 180))).toFixed(6)},` +
+            `${(lat + Math.sin(a) * rDeg).toFixed(6)}`
+        );
+    }
+    pts.push(`${lon},${lat}`);
+
+    const geo = await fetchBRouter(pts.join('|'));
+
+    if (geo) {
+        S.routeCoords = geo.features[0].geometry.coordinates;
+        const km2 = (geo.features[0].properties['track-length'] / 1000).toFixed(1);
+        document.getElementById('diff-tag').innerText = `${km2} km`;
+
+        /* place coins evenly along route */
+        S.collected = 0;
+        S.coinsToCollect = 10 + Math.floor((S.level - 1) / 10);
+        updateUI();
+        const cStep = Math.floor(S.routeCoords.length / (S.coinsToCollect + 1));
+        S.coinPositions = Array.from({ length: S.coinsToCollect }, (_, i) => ({
+            collected: false,
+            pos: S.routeCoords[Math.min((i + 1) * cStep, S.routeCoords.length - 1)],
+            mesh: null
+        }));
+
+        /* (re)load terrain then rebuild scene */
+        await loadTerrain(lat, lon);
+
+        S.routeReady = true;
+        document.getElementById('nav-btn').disabled = false;
+    } else {
+        alert('Routing nicht erreichbar.\nBitte WLAN prüfen und in ~1 Minute erneut versuchen.');
+    }
+
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('quest-btn').disabled = false;
+}
+
+/* ═══════════════════════════════════════════════════
+   NAVIGATION TOGGLE
+═══════════════════════════════════════════════════ */
+function toggleNav() {
+    S.navigating = !S.navigating;
+    const btn = document.getElementById('nav-btn');
+    const ns  = document.getElementById('nav-status');
+    if (S.navigating) {
+        btn.classList.add('active'); btn.textContent = '⏸ PAUSE';
+        ns.innerText = '▶ NAVIGATION AN'; ns.style.color = 'var(--cyan)';
+    } else {
+        btn.classList.remove('active'); btn.textContent = '▶ START';
+        ns.innerText = 'NAVIGATION AUS'; ns.style.color = '#444';
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   COIN COLLECTION
+═══════════════════════════════════════════════════ */
+function checkCoinCollection(lon, lat) {
+    S.coinPositions.forEach(c => {
+        if (c.collected || getDist(lon, lat, c.pos[0], c.pos[1]) >= 0.05) return;
+        c.collected = true;
+        if (c.mesh) { scene.remove(c.mesh); coin3D = coin3D.filter(m => m !== c.mesh); }
+        S.collected++;
+        goldBurst();
+        updateUI();
+        if (S.collected >= S.coinsToCollect) {
+            setTimeout(() => {
+                grandFinale();
+                setTimeout(() => {
+                    alert(`🏆 LEVEL ${S.level} COMPLETE!`);
+                    S.level++;
+                    generateRoute();
+                }, 900);
+            }, 300);
+        }
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   EFFECTS
+═══════════════════════════════════════════════════ */
+function goldBurst() {
+    const go = (ox, oa) => confetti({
+        particleCount:55, spread:52, startVelocity:26, angle:oa,
+        origin:{ x:ox, y:0.62 },
+        colors:['#ffd700','#ffaa00','#fff176','#ffffff','#ff8c00'],
+        gravity:1.2
+    });
+    go(0.5, 90);
+    setTimeout(() => { go(0.46, 82); go(0.54, 98); }, 110);
+}
+function grandFinale() {
+    const end = Date.now() + 1700;
+    (function f() {
+        confetti({ particleCount:9, angle:58,  spread:55, origin:{x:0}, colors:['#ffd700','#fff176','#ffaa00'] });
+        confetti({ particleCount:9, angle:122, spread:55, origin:{x:1}, colors:['#ffd700','#fff176','#ffaa00'] });
+        if (Date.now() < end) requestAnimationFrame(f);
+    })();
+}
+
+/* ═══════════════════════════════════════════════════
+   UI HELPERS
+═══════════════════════════════════════════════════ */
+function updateUI() {
+    document.getElementById('coins-coll').innerText  = S.collected;
+    document.getElementById('coins-total').innerText = S.coinsToCollect;
+    document.getElementById('lvl-disp').innerText    = `LEVEL ${S.level}`;
+}
+
+/* ═══════════════════════════════════════════════════
+   DIFFICULTY SLIDER
+═══════════════════════════════════════════════════ */
+const DIFFS = [
+    { label:'Easy',   km:15 },
+    { label:'Medium', km:30 },
+    { label:'Hard',   km:45 },
+    { label:'Ultra',  km:60 },
+];
+function applyDiff(idx) {
+    S.baseDist = DIFFS[idx].km;
+    document.getElementById('diff-km').innerText = `~${DIFFS[idx].km} km`;
+    document.querySelectorAll('#diff-labels span').forEach((el, i) => el.classList.toggle('active', i === idx));
+}
+document.getElementById('diff-slider').addEventListener('input', e => applyDiff(+e.target.value));
+applyDiff(0);
+
+/* ═══════════════════════════════════════════════════
+   BUTTON WIRING
+═══════════════════════════════════════════════════ */
+document.getElementById('quest-btn').addEventListener('click', generateRoute);
+document.getElementById('nav-btn').addEventListener('click', toggleNav);
+</script>
+</body>
+</html>
