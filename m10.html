@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CycleQuest 3D</title>
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root { --gold:#ffd700; --gold2:#ffaa00; --gold3:#fff176; --bg:#0d0d0d; --cyan:#00fbff; }
+        * { box-sizing:border-box; }
+        body { margin:0; padding:0; font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:white; overflow:hidden; }
+        #map { position:absolute; inset:0; }
+
+        /* ── HUD ── */
+        #ui-overlay {
+            position:absolute; top:15px; left:15px; right:15px;
+            display:flex; flex-direction:column; gap:10px; pointer-events:none;
+        }
+        .stats-card {
+            background:rgba(13,13,13,0.88); backdrop-filter:blur(20px);
+            padding:16px 20px; border-radius:22px;
+            border:1px solid rgba(255,215,0,0.35);
+            pointer-events:auto; display:flex; justify-content:space-between; align-items:center;
+            box-shadow:0 8px 32px rgba(0,0,0,0.55);
+        }
+        .coin-counter { font-size:2.1rem; color:var(--gold); font-weight:900; line-height:1; }
+        .level-badge { background:var(--gold); color:#000; padding:4px 11px; border-radius:10px; font-size:0.82rem; font-weight:800; margin-left:9px; vertical-align:middle; }
+        #status-text { font-size:0.72rem; color:#888; letter-spacing:1.5px; margin-bottom:3px; text-transform:uppercase; }
+
+        /* ── BUTTONS ── */
+        #controls {
+            position:absolute; bottom:40px; left:50%; transform:translateX(-50%);
+            display:flex; gap:12px; pointer-events:auto; white-space:nowrap;
+        }
+        .btn {
+            border:none; padding:20px 38px;
+            border-radius:50px; font-weight:900; font-size:1.25rem;
+            transition:all 0.18s ease; cursor:pointer; text-transform:uppercase; letter-spacing:1px;
+        }
+        .btn:active { transform:scale(0.91); }
+        .btn:disabled { background:#333!important; color:#666!important; cursor:not-allowed; box-shadow:none!important; }
+        #quest-btn { background:var(--gold); color:#000; box-shadow:0 5px 28px rgba(255,215,0,0.35); }
+        #nav-btn   { background:transparent; color:var(--cyan); border:2px solid var(--cyan); box-shadow:0 5px 28px rgba(0,251,255,0.18); }
+        #nav-btn.active { background:var(--cyan); color:#000; box-shadow:0 5px 28px rgba(0,251,255,0.45); }
+
+        /* ── LOADING ── */
+        #loading {
+            position:fixed; inset:0; background:rgba(0,0,0,0.92); display:none;
+            flex-direction:column; align-items:center; justify-content:center; z-index:9999;
+        }
+        .spinner { width:56px; height:56px; border:5px solid #1a1a1a; border-top-color:var(--gold); border-radius:50%; animation:spin 0.9s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #loading-msg { margin-top:18px; letter-spacing:2.5px; font-weight:700; color:#ccc; font-size:0.85rem; }
+
+        /* ══════════════════════════════════════════════════════
+           COIN STYLES
+           .coin-pin   = zero-size, handed to MapLibre (no anim!)
+           .coin-visual = absolutely centered child, all animations here
+        ══════════════════════════════════════════════════════ */
+        .coin-pin {
+            /* MapLibre sets transform on THIS element for geo-positioning.
+               Zero size = no offset error. overflow:visible = coin still shows. */
+            width:0 !important; height:0 !important;
+            position:relative;
+            overflow:visible;
+            pointer-events:none;
+        }
+
+        .coin-visual {
+            /* Centered on the pin point */
+            position:absolute;
+            left:-11px; top:-11px;
+            width:22px; height:22px;
+            /* float animation lives safely here, away from MapLibre's transform */
+            animation:coinFloat 1.15s ease-in-out infinite alternate;
+            filter:drop-shadow(0 0 7px rgba(255,215,0,1));
+        }
+        @keyframes coinFloat {
+            0%   { transform:translateY(0px); }
+            100% { transform:translateY(-10px); }
+        }
+
+        .coin-disc {
+            width:22px; height:22px; border-radius:50%;
+            position:relative; overflow:hidden;
+            background:conic-gradient(
+                #fff9aa 0deg,  #ffd700 30deg,  #ffaa00 70deg,
+                #ff8c00 100deg,#ffaa00 130deg, #ffd700 160deg,
+                #fff9aa 180deg,#ffd700 210deg, #ffaa00 250deg,
+                #ff8c00 280deg,#ffaa00 310deg, #ffd700 340deg, #fff9aa 360deg
+            );
+            border:1.5px solid rgba(255,255,255,0.6);
+            box-shadow:inset 0 2px 3px rgba(255,255,255,0.4), inset 0 -1px 2px rgba(0,0,0,0.3);
+        }
+
+        /* shimmer sweep across disc */
+        .coin-disc::after {
+            content:'';
+            position:absolute; top:-10%; left:-80%;
+            width:55%; height:120%;
+            background:linear-gradient(105deg,transparent 20%,rgba(255,255,255,0.9) 50%,transparent 80%);
+            border-radius:50%;
+            animation:shimSweep 2s linear infinite;
+        }
+        @keyframes shimSweep {
+            0%  { left:-80%; opacity:0; }
+            10% { opacity:1; }
+            50% { left:130%; opacity:1; }
+            51% { opacity:0; }
+            100%{ left:130%; opacity:0; }
+        }
+
+        /* sparkle dots around coin */
+        .coin-sparks {
+            position:absolute;
+            inset:-6px;
+            pointer-events:none;
+        }
+        .ck {
+            position:absolute; border-radius:50%;
+            background:#fff9aa;
+            animation:ckPop 1.5s ease-in-out infinite;
+        }
+        .ck:nth-child(1){width:3px;height:3px;top:0;  left:50%; animation-delay:0s;    }
+        .ck:nth-child(2){width:3px;height:3px;top:50%;right:0;  animation-delay:.38s;  }
+        .ck:nth-child(3){width:3px;height:3px;bottom:0;left:50%;animation-delay:.75s;  }
+        .ck:nth-child(4){width:3px;height:3px;top:50%;left:0;   animation-delay:1.13s; }
+        .ck:nth-child(5){width:2px;height:2px;top:8%; right:8%; animation-delay:.2s;  background:#fff;}
+        .ck:nth-child(6){width:2px;height:2px;bottom:8%;right:8%;animation-delay:.6s; background:#fff;}
+        @keyframes ckPop {
+            0%,100%{transform:scale(0);opacity:0;}
+            50%    {transform:scale(1.6);opacity:1;}
+        }
+
+        /* shadow on the map under coin */
+        .coin-shadow {
+            position:absolute;
+            bottom:-14px; left:50%;
+            transform:translateX(-50%);
+            width:14px; height:4px; border-radius:50%;
+            background:rgba(0,0,0,0.5);
+            animation:shadowScale 1.15s ease-in-out infinite alternate;
+        }
+        @keyframes shadowScale {
+            0%  {transform:translateX(-50%) scaleX(1);   opacity:.55;}
+            100%{transform:translateX(-50%) scaleX(.4);  opacity:.2;}
+        }
+
+        /* ── DIFFICULTY SLIDER ── */
+        #difficulty-bar {
+            position:absolute; bottom:115px; left:50%; transform:translateX(-50%);
+            width:min(340px, 90vw);
+            background:rgba(13,13,13,0.88); backdrop-filter:blur(20px);
+            border:1px solid rgba(255,215,0,0.3); border-radius:20px;
+            padding:14px 20px 10px; pointer-events:auto;
+            box-shadow:0 8px 32px rgba(0,0,0,0.5);
+        }
+        #diff-labels {
+            display:flex; justify-content:space-between;
+            font-size:0.72rem; font-weight:700; letter-spacing:.5px;
+            margin-bottom:10px; color:#aaa;
+        }
+        #diff-labels span { flex:1; text-align:center; transition:color .2s, transform .2s; cursor:default; }
+        #diff-labels span.active { color:var(--gold); transform:scale(1.12); }
+        #slider-wrap { position:relative; padding:4px 0; }
+        #diff-slider {
+            -webkit-appearance:none; appearance:none;
+            width:100%; height:6px; border-radius:3px; outline:none; cursor:pointer;
+            background: linear-gradient(90deg,
+                #3ddc84 0% 25%,
+                #ffd700 25% 50%,
+                #ff8c00 50% 75%,
+                #ff3b3b 75% 100%
+            );
+        }
+        #diff-slider::-webkit-slider-thumb {
+            -webkit-appearance:none; appearance:none;
+            width:26px; height:26px; border-radius:50%;
+            background:white; border:3px solid var(--gold);
+            box-shadow:0 0 10px rgba(255,215,0,0.7);
+            transition:transform .15s, box-shadow .15s;
+        }
+        #diff-slider:active::-webkit-slider-thumb {
+            transform:scale(1.25);
+            box-shadow:0 0 18px rgba(255,215,0,1);
+        }
+        #diff-slider::-moz-range-thumb {
+            width:24px; height:24px; border-radius:50%;
+            background:white; border:3px solid var(--gold);
+            box-shadow:0 0 10px rgba(255,215,0,0.7); cursor:pointer;
+        }
+        #diff-km {
+            text-align:center; font-size:0.78rem; color:#888;
+            margin-top:7px; letter-spacing:1px;
+        }
+
+        
+        .user-dot {
+            /* also zero-size pin so MapLibre positions it correctly */
+            width:0!important; height:0!important;
+            position:relative; overflow:visible;
+        }
+        .user-dot-inner {
+            position:absolute;
+            width:18px; height:18px;
+            left:-9px; top:-9px;
+            border-radius:50%;
+            background:var(--cyan); border:3px solid white;
+            animation:gpsPulse 1.6s ease-out infinite;
+        }
+        @keyframes gpsPulse {
+            0%  {box-shadow:0 0 0 0   rgba(0,251,255,.7);}
+            70% {box-shadow:0 0 0 16px rgba(0,251,255,0);}
+            100%{box-shadow:0 0 0 0   rgba(0,251,255,0);}
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading">
+    <div class="spinner"></div>
+    <p id="loading-msg">ADVENTURE WIRD GENERIERT...</p>
+</div>
+
+<div id="map"></div>
+
+<div id="ui-overlay">
+    <div class="stats-card">
+        <div>
+            <div id="status-text">SUCHE GPS...</div>
+            <div style="display:flex;align-items:center;">
+                <span id="level-display" style="font-size:1.15rem;font-weight:800;">LEVEL 1</span>
+                <span class="level-badge" id="difficulty-tag">-- km</span>
+            </div>
+            <div class="coin-counter">🪙 <span id="collected-coins">0</span><small style="font-size:.95rem;color:#777;"> / <span id="total-coins">10</span></small></div>
+        </div>
+        <div style="text-align:right;line-height:2;">
+            <div style="font-size:0.68rem;color:var(--cyan);letter-spacing:1px;">3D TERRAIN</div>
+            <div id="dist-val" style="font-weight:700;color:var(--gold);font-size:1rem;">Quest bereit</div>
+            <div id="nav-status" style="font-size:0.68rem;color:#555;letter-spacing:1px;">NAVIGATION AUS</div>
+        </div>
+    </div>
+</div>
+
+<div id="difficulty-bar">
+    <div id="diff-labels">
+        <span>🟢 Easy</span><span>🟡 Medium</span><span>🟠 Hard</span><span>🔴 Ultra</span>
+    </div>
+    <div id="slider-wrap">
+        <input type="range" id="diff-slider" min="0" max="3" step="1" value="0">
+    </div>
+    <div id="diff-km">~15 km</div>
+</div>
+
+<div id="controls">
+    <button id="quest-btn" class="btn">🗺 QUEST</button>
+    <button id="nav-btn"   class="btn" disabled>▶ START</button>
+</div>
+
+<script>
+const MT_KEY = '0h9bkxDZifPxKncVxFXv';
+
+const state = {
+    level:1, coinsToCollect:10, baseDist:20,
+    collected:0, userPos:null,
+    navigating:false, routeReady:false
+};
+
+let activeMarkers = [], userMarker = null;
+
+/* ── MAP ──────────────────────────────────────── */
+const map = new maplibregl.Map({
+    container:'map',
+    style:`https://api.maptiler.com/maps/hybrid/style.json?key=${MT_KEY}`,
+    center:[10.45,51.16], zoom:14, pitch:65, maxPitch:85
+});
+
+map.on('load', () => {
+    map.addSource('terrain', {
+        type:'raster-dem',
+        url:`https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MT_KEY}`,
+        tileSize:256
+    });
+    map.setTerrain({source:'terrain', exaggeration:1.5});
+
+    if ("geolocation" in navigator) {
+        navigator.geolocation.watchPosition(onGPS, () => {
+            document.getElementById('status-text').innerText = 'GPS FEHLER';
+        }, {enableHighAccuracy:true});
+    }
+});
+
+function onGPS(pos) {
+    const {longitude:lon, latitude:lat} = pos.coords;
+    state.userPos = [lon, lat];
+    document.getElementById('status-text').innerText = 'GPS AKTIV ✓';
+
+    if (!userMarker) {
+        // zero-size pin for GPS dot too
+        const pin = document.createElement('div');
+        pin.className = 'user-dot';
+        pin.innerHTML = '<div class="user-dot-inner"></div>';
+        userMarker = new maplibregl.Marker({element:pin, anchor:'center'})
+            .setLngLat([lon, lat]).addTo(map);
+    } else {
+        userMarker.setLngLat([lon, lat]);
+    }
+
+    if (state.navigating) map.easeTo({center:[lon,lat], duration:700});
+    checkCoinCollection(lon, lat);
+}
+
+/* ── FETCH WITH TIMEOUT ───────────────────────── */
+async function timedFetch(url, ms=9000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try { const r = await fetch(url, {signal:ctrl.signal}); clearTimeout(t); return r; }
+    catch(e) { clearTimeout(t); throw e; }
+}
+
+async function fetchBRouter(lonlats) {
+    const base = `https://brouter.de/brouter?lonlats=${lonlats}&profile=trekking&alternativeidx=0&format=geojson`;
+    const msg = document.getElementById('loading-msg');
+    const strategies = [
+        { label:'VERBINDE MIT BROUTER...',
+          go: () => timedFetch(base, 10000),
+          parse: r => r.json() },
+        { label:'NUTZE PROXY 1...',
+          go: () => timedFetch(`https://api.allorigins.win/get?url=${encodeURIComponent(base)}`, 11000),
+          parse: async r => { const j = await r.json(); return JSON.parse(j.contents); } },
+        { label:'NUTZE PROXY 2...',
+          go: () => timedFetch(`https://corsproxy.io/?url=${encodeURIComponent(base)}`, 9000),
+          parse: r => r.json() },
+        { label:'NUTZE PROXY 3...',
+          go: () => timedFetch(`https://cors.sh/${base}`, 9000),
+          parse: r => r.json() },
+    ];
+    for (const s of strategies) {
+        try {
+            msg.innerText = s.label;
+            const res = await s.go();
+            if (!res.ok) continue;
+            const data = await s.parse(res);
+            if (data?.features) return data;
+        } catch(e) { console.warn(s.label, e.message); }
+    }
+    return null;
+}
+
+/* ── QUEST ────────────────────────────────────── */
+async function generateRoute() {
+    if (!state.userPos) { alert('Warte auf GPS-Signal...'); return; }
+
+    document.getElementById('loading').style.display = 'flex';
+    document.getElementById('quest-btn').disabled = true;
+
+    const [lon, lat] = state.userPos;
+    const km   = state.baseDist * Math.pow(1.01, state.level - 1);
+    const rDeg = (km / (2 * Math.PI)) / 111.32;
+    const pts  = [`${lon},${lat}`];
+    const a0   = Math.random() * Math.PI * 2;
+
+    for (let i = 0; i < 6; i++) {
+        const a = a0 + i * (Math.PI / 3);
+        const pLon = lon + Math.cos(a) * (rDeg / Math.cos(lat * Math.PI / 180));
+        const pLat = lat + Math.sin(a) * rDeg;
+        pts.push(`${pLon.toFixed(6)},${pLat.toFixed(6)}`);
+    }
+    pts.push(`${lon},${lat}`);
+
+    const geo = await fetchBRouter(pts.join('|'));
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('quest-btn').disabled = false;
+
+    if (geo) {
+        renderRoute(geo);
+        placeCoins(geo);
+        const kmActual = (geo.features[0].properties['track-length'] / 1000).toFixed(1);
+        document.getElementById('difficulty-tag').innerText = `${kmActual} km`;
+        state.routeReady = true;
+        document.getElementById('nav-btn').disabled = false;
+    } else {
+        alert('Routing nicht erreichbar. Bitte in ~1 Minute erneut versuchen.');
+    }
+}
+
+/* ── NAVIGATION ───────────────────────────────── */
+function toggleNav() {
+    state.navigating = !state.navigating;
+    const btn = document.getElementById('nav-btn');
+    const ns  = document.getElementById('nav-status');
+    if (state.navigating) {
+        btn.classList.add('active'); btn.textContent = '⏸ PAUSE';
+        ns.innerText = '▶ NAVIGATION AN'; ns.style.color = 'var(--cyan)';
+        if (state.userPos) map.flyTo({center:state.userPos, zoom:16, pitch:72, speed:1.3});
+    } else {
+        btn.classList.remove('active'); btn.textContent = '▶ START';
+        ns.innerText = 'NAVIGATION AUS'; ns.style.color = '#555';
+        zoomToRoute();
+    }
+}
+
+/* ── ROUTE RENDER ─────────────────────────────── */
+function renderRoute(geo) {
+    if (map.getSource('route')) {
+        map.getSource('route').setData(geo);
+    } else {
+        map.addSource('route', {type:'geojson', data:geo});
+        map.addLayer({id:'route-glow', type:'line', source:'route',
+            paint:{'line-color':'#00fbff','line-width':16,'line-opacity':0.12,'line-blur':12}});
+        map.addLayer({id:'route-line', type:'line', source:'route',
+            paint:{'line-color':'#00fbff','line-width':5,'line-opacity':0.9}});
+        map.addLayer({id:'route-dash', type:'line', source:'route',
+            paint:{'line-color':'#ffffff','line-width':2,'line-opacity':0.3,'line-dasharray':[4,9]}});
+    }
+    zoomToRoute(geo);
+}
+
+function zoomToRoute(geo) {
+    const src = geo || (map.getSource('route') ? map.getSource('route')._data : null);
+    if (!src) return;
+    const coords = src.features[0].geometry.coordinates;
+    const bounds = coords.reduce(
+        (b, c) => b.extend(c),
+        new maplibregl.LngLatBounds(coords[0], coords[0])
+    );
+    map.fitBounds(bounds, {padding:75, pitch:60});
+}
+
+/* ── MAKE COIN ────────────────────────────────── */
+/*
+ *  Structure:
+ *  <div class="coin-pin">          ← 0×0, MapLibre positions THIS
+ *    <div class="coin-visual">     ← absolutely centered, has float anim
+ *      <div class="coin-sparks">…</div>
+ *      <div class="coin-disc">     ← flip + shimmer (::after)
+ *      <div class="coin-shadow">
+ *    </div>
+ *  </div>
+ */
+function makeCoin() {
+    const pin = document.createElement('div');
+    pin.className = 'coin-pin';
+
+    const delay = `${(Math.random() * 1.2).toFixed(2)}s`;
+    pin.innerHTML = `
+      <div class="coin-visual" style="animation-delay:${delay}">
+        <div class="coin-sparks">
+          <div class="ck"></div><div class="ck"></div>
+          <div class="ck"></div><div class="ck"></div>
+          <div class="ck"></div><div class="ck"></div>
+        </div>
+        <div class="coin-disc"></div>
+        <div class="coin-shadow"></div>
+      </div>`;
+    return pin;
+}
+
+/* ── PLACE COINS ──────────────────────────────── */
+function placeCoins(geo) {
+    activeMarkers.forEach(m => m.marker.remove());
+    activeMarkers = [];
+    state.collected = 0;
+    state.coinsToCollect = 10 + Math.floor((state.level - 1) / 10);
+    updateUI();
+
+    const coords = geo.features[0].geometry.coordinates;
+    const step   = Math.floor(coords.length / (state.coinsToCollect + 1));
+
+    for (let i = 1; i <= state.coinsToCollect; i++) {
+        const pos = coords[Math.min(i * step, coords.length - 1)];
+        // anchor:'center' + 0-size pin = pin point IS the geo coordinate, no offset math needed
+        const marker = new maplibregl.Marker({element:makeCoin(), anchor:'center'})
+            .setLngLat(pos)
+            .addTo(map);
+        activeMarkers.push({marker, collected:false, pos});
+    }
+}
+
+/* ── COLLECTION CHECK ─────────────────────────── */
+function checkCoinCollection(lon, lat) {
+    activeMarkers.forEach(m => {
+        if (m.collected || getDist(lon, lat, m.pos[0], m.pos[1]) >= 0.05) return;
+        m.collected = true;
+        m.marker.remove();
+        state.collected++;
+        goldBurst();
+        updateUI();
+        if (state.collected >= state.coinsToCollect) {
+            setTimeout(() => {
+                grandFinale();
+                setTimeout(() => {
+                    alert(`🏆 LEVEL ${state.level} COMPLETE!`);
+                    state.level++;
+                    generateRoute();
+                }, 900);
+            }, 300);
+        }
+    });
+}
+
+/* ── EFFECTS ──────────────────────────────────── */
+function goldBurst() {
+    const go = (ox, oa) => confetti({
+        particleCount:55, spread:52, startVelocity:26, angle:oa,
+        origin:{x:ox, y:0.62},
+        colors:['#ffd700','#ffaa00','#fff176','#ffffff','#ff8c00'],
+        shapes:['circle','square'], gravity:1.15, scalar:1.1
+    });
+    go(0.5, 90);
+    setTimeout(() => { go(0.46, 82); go(0.54, 98); }, 110);
+}
+
+function grandFinale() {
+    const end = Date.now() + 1600;
+    (function frame() {
+        confetti({particleCount:9, angle:58,  spread:54, origin:{x:0}, colors:['#ffd700','#fff176','#ffaa00']});
+        confetti({particleCount:9, angle:122, spread:54, origin:{x:1}, colors:['#ffd700','#fff176','#ffaa00']});
+        if (Date.now() < end) requestAnimationFrame(frame);
+    })();
+}
+
+/* ── HELPERS ──────────────────────────────────── */
+function updateUI() {
+    document.getElementById('collected-coins').innerText = state.collected;
+    document.getElementById('total-coins').innerText     = state.coinsToCollect;
+    document.getElementById('level-display').innerText   = `LEVEL ${state.level}`;
+}
+
+function getDist(lo1, la1, lo2, la2) {
+    const R = 6371;
+    const dLat = (la2-la1) * Math.PI/180;
+    const dLon = (lo2-lo1) * Math.PI/180;
+    const a = Math.sin(dLat/2)**2 +
+              Math.cos(la1*Math.PI/180) * Math.cos(la2*Math.PI/180) * Math.sin(dLon/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+const DIFFICULTIES = [
+    { label:'Easy',   km:15, color:'#3ddc84' },
+    { label:'Medium', km:30, color:'#ffd700' },
+    { label:'Hard',   km:45, color:'#ff8c00' },
+    { label:'Ultra',  km:60, color:'#ff3b3b' },
+];
+
+function applyDifficulty(idx) {
+    const d = DIFFICULTIES[idx];
+    state.baseDist = d.km;
+    document.getElementById('diff-km').innerText = `~${d.km} km`;
+    document.querySelectorAll('#diff-labels span').forEach((el,i) => {
+        el.classList.toggle('active', i === idx);
+    });
+    const thumb = document.getElementById('diff-slider');
+    thumb.style.setProperty('--thumb-color', d.color);
+}
+
+document.getElementById('diff-slider').addEventListener('input', e => {
+    applyDifficulty(parseInt(e.target.value));
+});
+
+applyDifficulty(0);
+
+document.getElementById('quest-btn').addEventListener('click', generateRoute);
+document.getElementById('nav-btn').addEventListener('click', toggleNav);
+</script>
+</body>
+</html>
