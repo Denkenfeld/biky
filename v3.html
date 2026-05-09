@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CycleQuest 3D – Voxel Edition</title>
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet"/>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root { --gold:#ffd700; --cyan:#00fbff; }
+        * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+        body { background:#0a0a14; color:white; overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; }
+
+        /* ── MAP ─────────────────────────────── */
+        #map { position:absolute; inset:0; }
+
+        /* ── VOXEL GRID OVERLAY ──────────────── */
+        /* gives satellite imagery a Minecraft block-grid aesthetic */
+        #voxel-grid {
+            position:absolute; inset:0; z-index:1; pointer-events:none;
+            background-image:
+                linear-gradient(rgba(0,0,0,0.10) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.10) 1px, transparent 1px);
+            background-size:18px 18px;
+        }
+
+        /* ── HUD ─────────────────────────────── */
+        #ui-overlay { position:absolute; top:15px; left:15px; right:15px; z-index:10; pointer-events:none; }
+        .stats-card {
+            background:rgba(0,0,0,0.78); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,0.28); border-radius:18px;
+            padding:14px 18px; pointer-events:auto;
+            display:flex; justify-content:space-between; align-items:center;
+            box-shadow:0 4px 24px rgba(0,0,0,.6);
+        }
+        .coin-ctr  { font-size:2rem; color:var(--gold); font-weight:900; line-height:1; }
+        .lvl-badge { background:var(--gold); color:#000; padding:3px 10px; border-radius:8px; font-size:.78rem; font-weight:800; margin-left:8px; }
+        #status-text { font-size:.68rem; color:#888; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:3px; }
+
+        /* ── BUTTONS ─────────────────────────── */
+        #controls {
+            position:absolute; bottom:40px; left:50%; transform:translateX(-50%);
+            display:flex; gap:12px; z-index:10; pointer-events:auto; white-space:nowrap;
+        }
+        .btn {
+            border:none; padding:18px 34px; border-radius:50px;
+            font-weight:900; font-size:1.2rem; cursor:pointer;
+            text-transform:uppercase; letter-spacing:1px; transition:all .15s;
+        }
+        .btn:active { transform:scale(0.90); }
+        .btn:disabled { background:#333!important; color:#666!important; cursor:not-allowed; box-shadow:none!important; }
+        #quest-btn { background:var(--gold); color:#000; box-shadow:0 4px 22px rgba(255,215,0,.35); }
+        #nav-btn   { background:transparent; color:var(--cyan); border:2px solid var(--cyan); }
+        #nav-btn.active { background:var(--cyan); color:#000; }
+
+        /* ── DIFFICULTY ──────────────────────── */
+        #difficulty-bar {
+            position:absolute; bottom:116px; left:50%; transform:translateX(-50%);
+            width:min(340px,90vw); z-index:10;
+            background:rgba(0,0,0,0.78); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,.22); border-radius:18px;
+            padding:12px 18px 10px;
+        }
+        #diff-labels { display:flex; justify-content:space-between; font-size:.68rem; font-weight:700; margin-bottom:9px; color:#777; }
+        #diff-labels span.active { color:var(--gold); transform:scale(1.1); display:inline-block; }
+        #diff-slider {
+            -webkit-appearance:none; width:100%; height:5px; border-radius:3px; outline:none; cursor:pointer;
+            background:linear-gradient(90deg,#3ddc84 0 25%,#ffd700 25% 50%,#ff8c00 50% 75%,#ff3b3b 75% 100%);
+        }
+        #diff-slider::-webkit-slider-thumb {
+            -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+            background:#fff; border:2.5px solid var(--gold); box-shadow:0 0 8px rgba(255,215,0,.7);
+        }
+        #diff-slider::-moz-range-thumb { width:20px; height:20px; border-radius:50%; background:#fff; border:2.5px solid var(--gold); cursor:pointer; }
+        #diff-km { text-align:center; font-size:.7rem; color:#666; margin-top:6px; letter-spacing:1px; }
+
+        /* ── LOADING ──────────────────────────── */
+        #loading {
+            position:fixed; inset:0; background:rgba(0,0,0,.93); display:none;
+            flex-direction:column; align-items:center; justify-content:center; z-index:999;
+        }
+        .spinner { width:52px; height:52px; border:4px solid #1a1a1a; border-top-color:var(--gold); border-radius:50%; animation:spin .9s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        #loading-msg { margin-top:16px; letter-spacing:2px; font-weight:700; color:#aaa; font-size:.82rem; text-align:center; max-width:85%; }
+
+        /* ══════════════════════════════════════
+           SHINY COIN  (zero-size MapLibre anchor)
+        ══════════════════════════════════════ */
+        .coin-pin { width:0!important; height:0!important; position:relative; overflow:visible; pointer-events:none; }
+        .coin-visual {
+            position:absolute; left:-11px; top:-11px;
+            width:22px; height:22px;
+            animation:coinFloat 1.15s ease-in-out infinite alternate;
+            filter:drop-shadow(0 0 7px rgba(255,215,0,1));
+        }
+        @keyframes coinFloat {
+            0%   { transform:translateY(0px); }
+            100% { transform:translateY(-10px); }
+        }
+        .coin-disc {
+            width:22px; height:22px; border-radius:50%;
+            position:relative; overflow:hidden;
+            background:conic-gradient(#fff9aa 0deg,#ffd700 30deg,#ffaa00 70deg,#ff8c00 100deg,#ffaa00 130deg,#ffd700 160deg,#fff9aa 180deg,#ffd700 210deg,#ffaa00 250deg,#ff8c00 280deg,#ffaa00 310deg,#ffd700 340deg,#fff9aa 360deg);
+            border:1.5px solid rgba(255,255,255,0.6);
+            box-shadow:inset 0 2px 3px rgba(255,255,255,0.4),inset 0 -1px 2px rgba(0,0,0,0.3);
+        }
+        .coin-disc::after {
+            content:''; position:absolute; top:-10%; left:-80%;
+            width:55%; height:120%;
+            background:linear-gradient(105deg,transparent 20%,rgba(255,255,255,0.9) 50%,transparent 80%);
+            border-radius:50%;
+            animation:shimSweep 2s linear infinite;
+        }
+        @keyframes shimSweep {
+            0%  { left:-80%; opacity:0; } 10%{ opacity:1; }
+            50% { left:130%; opacity:1; } 51%{ opacity:0; } 100%{ left:130%; opacity:0; }
+        }
+        .coin-sparks { position:absolute; inset:-6px; pointer-events:none; }
+        .ck { position:absolute; border-radius:50%; background:#fff9aa; animation:ckPop 1.5s ease-in-out infinite; }
+        .ck:nth-child(1){width:3px;height:3px;top:0;left:50%;animation-delay:0s}
+        .ck:nth-child(2){width:3px;height:3px;top:50%;right:0;animation-delay:.38s}
+        .ck:nth-child(3){width:3px;height:3px;bottom:0;left:50%;animation-delay:.75s}
+        .ck:nth-child(4){width:3px;height:3px;top:50%;left:0;animation-delay:1.13s}
+        .ck:nth-child(5){width:2px;height:2px;top:8%;right:8%;animation-delay:.2s;background:#fff}
+        .ck:nth-child(6){width:2px;height:2px;bottom:8%;right:8%;animation-delay:.6s;background:#fff}
+        @keyframes ckPop { 0%,100%{transform:scale(0);opacity:0} 50%{transform:scale(1.6);opacity:1} }
+        .coin-shadow { position:absolute; bottom:-13px; left:50%; transform:translateX(-50%); width:14px; height:4px; border-radius:50%; background:rgba(0,0,0,0.5); animation:shadowScale 1.15s ease-in-out infinite alternate; }
+        @keyframes shadowScale { 0%{transform:translateX(-50%) scaleX(1);opacity:.55} 100%{transform:translateX(-50%) scaleX(.4);opacity:.2} }
+
+        /* ══════════════════════════════════════
+           MINECRAFT NPC  (zero-size MapLibre anchor)
+        ══════════════════════════════════════ */
+        .npc-pin { width:0!important; height:0!important; position:relative; overflow:visible; pointer-events:none; }
+        .npc-wrap {
+            position:absolute;
+            filter:drop-shadow(0 3px 5px rgba(0,0,0,0.6));
+        }
+        .npc-wrap.walking { animation:npcBob 0.38s ease-in-out infinite alternate; }
+        @keyframes npcBob {
+            0%   { transform:translateY(0px) scaleY(1); }
+            100% { transform:translateY(-4px) scaleY(0.96); }
+        }
+        .npc-shadow-el {
+            width:14px; height:4px; border-radius:50%;
+            background:rgba(0,0,0,0.35); margin:2px auto 0;
+            animation:npcShadow 0.38s ease-in-out infinite alternate;
+        }
+        @keyframes npcShadow {
+            0%  {transform:scaleX(1);   opacity:.35}
+            100%{transform:scaleX(.55); opacity:.15}
+        }
+
+        /* ── GPS dot ─────────────────────────── */
+        .gps-pin { width:0!important; height:0!important; position:relative; overflow:visible; }
+        .gps-dot {
+            position:absolute; width:18px; height:18px;
+            left:-9px; top:-9px;
+            border-radius:50%; background:var(--cyan); border:3px solid white;
+            animation:gpsPulse 1.6s ease-out infinite;
+        }
+        @keyframes gpsPulse { 0%{box-shadow:0 0 0 0 rgba(0,251,255,.7)} 70%{box-shadow:0 0 0 16px rgba(0,251,255,0)} 100%{box-shadow:0 0 0 0 rgba(0,251,255,0)} }
+
+        /* ── MapLibre overrides ──────────────── */
+        .maplibregl-ctrl-top-right { z-index:10; }
+        .maplibregl-canvas { image-rendering:auto; }
+    </style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p id="loading-msg">KARTE LADEN...</p></div>
+
+<div id="map"></div>
+<div id="voxel-grid"></div>
+
+<div id="ui-overlay">
+    <div class="stats-card">
+        <div>
+            <div id="status-text">GPS SUCHEN...</div>
+            <div style="display:flex;align-items:center">
+                <span id="lvl-disp" style="font-size:1.1rem;font-weight:800">LEVEL 1</span>
+                <span class="lvl-badge" id="diff-tag">-- km</span>
+            </div>
+            <div class="coin-ctr">🪙 <span id="coins-coll">0</span><small style="font-size:.88rem;color:#666"> / <span id="coins-total">10</span></small></div>
+        </div>
+        <div style="text-align:right;line-height:2">
+            <div style="font-size:.64rem;color:var(--cyan);letter-spacing:1px">⛏ VOXEL WORLD</div>
+            <div id="dist-val" style="font-weight:700;color:var(--gold);font-size:.92rem">Quest bereit</div>
+            <div id="nav-status" style="font-size:.64rem;color:#444;letter-spacing:1px">NAVIGATION AUS</div>
+        </div>
+    </div>
+</div>
+
+<div id="difficulty-bar">
+    <div id="diff-labels">
+        <span>🟢 Easy</span><span>🟡 Medium</span><span>🟠 Hard</span><span>🔴 Ultra</span>
+    </div>
+    <input type="range" id="diff-slider" min="0" max="3" step="1" value="0">
+    <div id="diff-km">~6 km</div>
+</div>
+
+<div id="controls">
+    <button id="quest-btn" class="btn">🗺 QUEST</button>
+    <button id="nav-btn"   class="btn" disabled>▶ START</button>
+</div>
+
+<script>
+'use strict';
+
+/* ═══════════════════════════════════════════════════
+   CONSTANTS & STATE
+═══════════════════════════════════════════════════ */
+const MT_KEY = '0h9bkxDZifPxKncVxFXv';
+
+const S = {
+    level:1, coinsToCollect:10,
+    baseDist:6,   // 60% shorter: 6/12/18/24 km
+    collected:0, userPos:null,
+    navigating:false, routeReady:false,
+    coinPositions:[],
+};
+
+/* ═══════════════════════════════════════════════════
+   MAP SETUP  — real satellite + 3D terrain via MapLibre
+   (MapLibre loads tiles through WebGL, no canvas
+    pixel reading, works everywhere)
+═══════════════════════════════════════════════════ */
+const map = new maplibregl.Map({
+    container: 'map',
+    style: `https://api.maptiler.com/maps/hybrid/style.json?key=${MT_KEY}`,
+    center: [8.8552, 48.2751],   // Balingen
+    zoom: 14,
+    pitch: 62,
+    maxPitch: 85,
+    bearing: 0,
+    dragRotate: true,
+    pitchWithRotate: true,
+    touchZoomRotate: true,
+    touchPitch: true,
+});
+
+// Navigation control (zoom +/-, compass, tilt)
+map.addControl(new maplibregl.NavigationControl({ visualizePitch:true }), 'bottom-right');
+
+map.on('load', () => {
+    document.getElementById('loading').style.display = 'none';
+
+    // Real 3D terrain from MapTiler elevation tiles
+    map.addSource('terrain', {
+        type: 'raster-dem',
+        url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MT_KEY}`,
+        tileSize: 256,
+    });
+    map.setTerrain({ source:'terrain', exaggeration:1.6 });
+
+    // GPS
+    if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition(onGPS,
+            () => { document.getElementById('status-text').innerText = 'GPS FEHLER'; },
+            { enableHighAccuracy:true });
+    } else {
+        document.getElementById('status-text').innerText = 'KEIN GPS';
+    }
+
+    // Spawn wandering NPCs after map loaded
+    spawnNPCs();
+});
+
+/* ═══════════════════════════════════════════════════
+   GPS
+═══════════════════════════════════════════════════ */
+let gpsDot = null;
+
+function onGPS(pos) {
+    const { longitude:lon, latitude:lat } = pos.coords;
+    const first = !S.userPos;
+    S.userPos = [lon, lat];
+    document.getElementById('status-text').innerText = 'GPS AKTIV ✓';
+
+    if (!gpsDot) {
+        const el = document.createElement('div');
+        el.className = 'gps-pin';
+        el.innerHTML = '<div class="gps-dot"></div>';
+        gpsDot = new maplibregl.Marker({ element:el, anchor:'center' })
+            .setLngLat([lon,lat]).addTo(map);
+    } else {
+        gpsDot.setLngLat([lon, lat]);
+    }
+
+    if (first) map.flyTo({ center:[lon,lat], zoom:14, speed:1.2 });
+    if (S.navigating) map.easeTo({ center:[lon,lat], duration:600 });
+
+    checkCoinCollection(lon, lat);
+}
+
+/* ═══════════════════════════════════════════════════
+   DISTANCE HELPER
+═══════════════════════════════════════════════════ */
+function getDist(lo1,la1,lo2,la2) {
+    const R=6371,dLa=(la2-la1)*Math.PI/180,dLo=(lo2-lo1)*Math.PI/180;
+    const a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+/* ═══════════════════════════════════════════════════
+   MINECRAFT-STYLE NPC CHARACTERS
+   SVG pixel art, each has a random palette.
+   They wander the map as MapLibre markers.
+═══════════════════════════════════════════════════ */
+const NPC_PALETTES = [
+    { skin:'ffd5b5', shirt:'1565c0', pants:'0d47a1', hair:'4e342e' },
+    { skin:'ffcba4', shirt:'c62828', pants:'4e342e', hair:'ff8f00' },
+    { skin:'ffe0b2', shirt:'2e7d32', pants:'1b5e20', hair:'ffb300' },
+    { skin:'f5cba7', shirt:'6a1b9a', pants:'4a148c', hair:'212121' },
+    { skin:'ffd5b5', shirt:'e65100', pants:'5d4037', hair:'795548' },
+    { skin:'ffe0b2', shirt:'37474f', pants:'263238', hair:'212121' },
+    { skin:'ffcba4', shirt:'f9a825', pants:'5d4037', hair:'3e2723' },
+    { skin:'ffd5b5', shirt:'00695c', pants:'004d40', hair:'5d4037' },
+];
+
+function makeNPCElement(p, walking) {
+    const pin = document.createElement('div');
+    pin.className = 'npc-pin';
+    // SVG width=20px, viewBox 0 0 10 20 → pixel-art Minecraft proportions
+    pin.innerHTML = `
+      <div class="npc-wrap${walking?' walking':''}">
+        <svg width="22" height="38" viewBox="0 0 11 19" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+          <!-- hair -->
+          <rect x="2" y="0" width="7" height="1.5" fill="#${p.hair}"/>
+          <!-- head -->
+          <rect x="2" y="1.5" width="7" height="5.5" fill="#${p.skin}"/>
+          <!-- left eye -->
+          <rect x="3"   y="4" width="1.5" height="2" fill="#1a1a2e"/>
+          <!-- right eye -->
+          <rect x="6.5" y="4" width="1.5" height="2" fill="#1a1a2e"/>
+          <!-- body -->
+          <rect x="2.5" y="7" width="6" height="5.5" fill="#${p.shirt}"/>
+          <!-- left arm -->
+          <rect x="0.2" y="7" width="2.2" height="5" fill="#${p.shirt}"/>
+          <!-- right arm -->
+          <rect x="8.5" y="7" width="2.2" height="5" fill="#${p.shirt}"/>
+          <!-- left leg -->
+          <rect x="2.5" y="12.5" width="2.6" height="6.5" fill="#${p.pants}"/>
+          <!-- right leg -->
+          <rect x="5.8" y="12.5" width="2.6" height="6.5" fill="#${p.pants}"/>
+        </svg>
+        <div class="npc-shadow-el"></div>
+      </div>`;
+    return pin;
+}
+
+let npcs = [];
+const NPC_COUNT = 10;
+
+function spawnNPCs() {
+    if (!S.userPos) {
+        // wait for GPS then spawn
+        const t = setInterval(() => {
+            if (S.userPos) { clearInterval(t); doSpawnNPCs(); }
+        }, 500);
+    } else {
+        doSpawnNPCs();
+    }
+}
+
+function doSpawnNPCs() {
+    const [cLon, cLat] = S.userPos || [8.8552, 48.2751];
+
+    for (let n = 0; n < NPC_COUNT; n++) {
+        const pal     = NPC_PALETTES[n % NPC_PALETTES.length];
+        const walking = Math.random() > 0.25;
+        // Random start within ~300m of user
+        const r       = 0.001 + Math.random() * 0.002;
+        const a       = Math.random() * Math.PI * 2;
+        const lon     = cLon + Math.cos(a) * r;
+        const lat     = cLat + Math.sin(a) * r;
+        const el      = makeNPCElement(pal, walking);
+        const marker  = new maplibregl.Marker({ element:el, anchor:'bottom' })
+            .setLngLat([lon, lat]).addTo(map);
+
+        npcs.push({
+            marker, el,
+            lon, lat,
+            walkDir: Math.random() * Math.PI * 2,
+            speed: walking ? (0.00003 + Math.random() * 0.00002) : 0,
+            dirTimer: Date.now() + 2000 + Math.random() * 5000,
+            walking,
+            originLon: cLon, originLat: cLat,
+        });
+    }
+    setInterval(updateNPCs, 250);
+}
+
+function updateNPCs() {
+    const now = Date.now();
+    npcs.forEach(npc => {
+        // Random direction change
+        if (now > npc.dirTimer) {
+            npc.walkDir += (Math.random() - 0.5) * Math.PI * 1.5;
+            npc.dirTimer = now + 2000 + Math.random() * 6000;
+        }
+        if (npc.speed > 0) {
+            npc.lon += Math.cos(npc.walkDir) * npc.speed;
+            npc.lat += Math.sin(npc.walkDir) * npc.speed;
+            // Keep within ~500m of origin
+            if (getDist(npc.lat, npc.lon, npc.originLat, npc.originLon) > 0.5)
+                npc.walkDir += Math.PI;
+            npc.marker.setLngLat([npc.lon, npc.lat]);
+        }
+        // Flip horizontally to show walk direction
+        const wrap = npc.el.querySelector('.npc-wrap');
+        if (wrap) wrap.style.transform = `scaleX(${Math.cos(npc.walkDir) >= 0 ? 1 : -1})`;
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   BROUTER ROUTING FETCH
+═══════════════════════════════════════════════════ */
+async function timedFetch(url, ms=9000) {
+    const c = new AbortController(), t = setTimeout(()=>c.abort(), ms);
+    try { const r = await fetch(url,{signal:c.signal}); clearTimeout(t); return r; }
+    catch(e) { clearTimeout(t); throw e; }
+}
+
+async function fetchBRouter(lonlats) {
+    const base = `https://brouter.de/brouter?lonlats=${lonlats}&profile=trekking&alternativeidx=0&format=geojson`;
+    const msg  = document.getElementById('loading-msg');
+    for (const s of [
+        { l:'ROUTE BERECHNEN...',  go:()=>timedFetch(base,10000), parse:r=>r.json() },
+        { l:'PROXY 1...',          go:()=>timedFetch(`https://api.allorigins.win/get?url=${encodeURIComponent(base)}`,11000), parse:async r=>{const j=await r.json();return JSON.parse(j.contents);} },
+        { l:'PROXY 2...',          go:()=>timedFetch(`https://corsproxy.io/?url=${encodeURIComponent(base)}`,9000), parse:r=>r.json() },
+    ]) {
+        try {
+            msg.innerText = s.l;
+            const res = await s.go(); if (!res.ok) continue;
+            const d = await s.parse(res); if (d?.features) return d;
+        } catch(e) { console.warn(s.l, e.message); }
+    }
+    return null;
+}
+
+/* ═══════════════════════════════════════════════════
+   ROUTE  — MapLibre line layer  (cyan glow)
+═══════════════════════════════════════════════════ */
+function renderRoute(geojson) {
+    if (map.getSource('route')) {
+        map.getSource('route').setData(geojson);
+    } else {
+        map.addSource('route', { type:'geojson', data:geojson });
+        map.addLayer({ id:'route-glow', type:'line', source:'route',
+            paint:{ 'line-color':'#00fbff','line-width':14,'line-opacity':0.18,'line-blur':10 }});
+        map.addLayer({ id:'route-line', type:'line', source:'route',
+            paint:{ 'line-color':'#00fbff','line-width':5,'line-opacity':0.95 }});
+        map.addLayer({ id:'route-dash', type:'line', source:'route',
+            paint:{ 'line-color':'#ffffff','line-width':2,'line-opacity':0.35,'line-dasharray':[4,9] }});
+    }
+    const coords = geojson.features[0].geometry.coordinates;
+    const bounds = coords.reduce((b,c)=>b.extend(c), new maplibregl.LngLatBounds(coords[0],coords[0]));
+    map.fitBounds(bounds, { padding:70, pitch:62 });
+}
+
+/* ═══════════════════════════════════════════════════
+   COINS  — shiny CSS markers along the route
+═══════════════════════════════════════════════════ */
+let activeCoins = [];
+
+function makeCoinEl() {
+    const pin = document.createElement('div');
+    pin.className = 'coin-pin';
+    const d = (Math.random()*1.2).toFixed(2);
+    pin.innerHTML = `
+      <div class="coin-visual" style="animation-delay:${d}s">
+        <div style="position:relative">
+          <div class="coin-sparks">
+            <div class="ck"></div><div class="ck"></div>
+            <div class="ck"></div><div class="ck"></div>
+            <div class="ck"></div><div class="ck"></div>
+          </div>
+          <div class="coin-disc"></div>
+        </div>
+        <div class="coin-shadow"></div>
+      </div>`;
+    return pin;
+}
+
+function placeCoins(geojson) {
+    activeCoins.forEach(c=>c.marker.remove());
+    activeCoins = [];
+    S.collected = 0;
+    S.coinsToCollect = 10 + Math.floor((S.level-1)/10);
+    updateUI();
+    const coords = geojson.features[0].geometry.coordinates;
+    const step   = Math.floor(coords.length / (S.coinsToCollect+1));
+    S.coinPositions = [];
+    for (let i=1; i<=S.coinsToCollect; i++) {
+        const pos    = coords[Math.min(i*step, coords.length-1)];
+        const el     = makeCoinEl();
+        const marker = new maplibregl.Marker({ element:el, anchor:'center' })
+            .setLngLat(pos).addTo(map);
+        const entry  = { marker, collected:false, pos };
+        activeCoins.push(entry);
+        S.coinPositions.push(entry);
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   QUEST GENERATION  (routes 60% shorter: 4 waypoints)
+═══════════════════════════════════════════════════ */
+async function generateRoute() {
+    if (!S.userPos) { alert('Warte auf GPS-Signal...'); return; }
+    document.getElementById('loading').style.display = 'flex';
+    document.getElementById('loading-msg').innerText = 'ROUTE BERECHNEN...';
+    document.getElementById('quest-btn').disabled = true;
+
+    const [lon, lat] = S.userPos;
+    const km   = S.baseDist * Math.pow(1.01, S.level-1);
+    const rDeg = (km / (2*Math.PI)) / 111.32;
+    const pts  = [`${lon},${lat}`];
+    const a0   = Math.random() * Math.PI * 2;
+    // 4 waypoints (not 6) → tighter, shorter actual route
+    for (let i=0; i<4; i++) {
+        const a = a0 + i*(Math.PI/2);
+        pts.push(`${(lon+Math.cos(a)*(rDeg/Math.cos(lat*Math.PI/180))).toFixed(6)},${(lat+Math.sin(a)*rDeg).toFixed(6)}`);
+    }
+    pts.push(`${lon},${lat}`);
+
+    const geo = await fetchBRouter(pts.join('|'));
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('quest-btn').disabled = false;
+
+    if (geo) {
+        renderRoute(geo);
+        placeCoins(geo);
+        const km2 = (geo.features[0].properties['track-length']/1000).toFixed(1);
+        document.getElementById('diff-tag').innerText = `${km2} km`;
+        S.routeReady = true;
+        document.getElementById('nav-btn').disabled = false;
+        // Move NPC origins to route area so they wander nearby
+        const center = geo.features[0].geometry.coordinates[Math.floor(geo.features[0].geometry.coordinates.length/2)];
+        npcs.forEach(n => { n.originLon=center[0]; n.originLat=center[1]; });
+    } else {
+        alert('Routing nicht erreichbar.\nBitte WLAN prüfen und erneut versuchen.');
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════════════ */
+function toggleNav() {
+    S.navigating = !S.navigating;
+    const btn = document.getElementById('nav-btn');
+    const ns  = document.getElementById('nav-status');
+    if (S.navigating) {
+        btn.classList.add('active'); btn.textContent='⏸ PAUSE';
+        ns.innerText='▶ NAVIGATION AN'; ns.style.color='var(--cyan)';
+        if (S.userPos) map.flyTo({ center:S.userPos, zoom:16, pitch:70, speed:1.2 });
+    } else {
+        btn.classList.remove('active'); btn.textContent='▶ START';
+        ns.innerText='NAVIGATION AUS'; ns.style.color='#444';
+    }
+}
+
+/* ═══════════════════════════════════════════════════
+   COIN COLLECTION
+═══════════════════════════════════════════════════ */
+function checkCoinCollection(lon, lat) {
+    S.coinPositions.forEach(c => {
+        if (c.collected || getDist(lon,lat,c.pos[0],c.pos[1]) >= 0.05) return;
+        c.collected = true;
+        c.marker.remove();
+        S.collected++;
+        goldBurst();
+        updateUI();
+        if (S.collected >= S.coinsToCollect) {
+            setTimeout(() => {
+                grandFinale();
+                setTimeout(() => { alert(`🏆 LEVEL ${S.level} COMPLETE!`); S.level++; generateRoute(); }, 900);
+            }, 300);
+        }
+    });
+}
+
+/* ═══════════════════════════════════════════════════
+   EFFECTS
+═══════════════════════════════════════════════════ */
+function goldBurst() {
+    const go=(ox,oa)=>confetti({particleCount:55,spread:52,startVelocity:26,angle:oa,origin:{x:ox,y:0.62},colors:['#ffd700','#ffaa00','#fff176','#ffffff','#ff8c00'],gravity:1.2});
+    go(0.5,90); setTimeout(()=>{go(0.46,82);go(0.54,98);},110);
+}
+function grandFinale() {
+    const end=Date.now()+1700;
+    (function f(){
+        confetti({particleCount:9,angle:58,spread:55,origin:{x:0},colors:['#ffd700','#fff176','#ffaa00']});
+        confetti({particleCount:9,angle:122,spread:55,origin:{x:1},colors:['#ffd700','#fff176','#ffaa00']});
+        if(Date.now()<end) requestAnimationFrame(f);
+    })();
+}
+
+/* ═══════════════════════════════════════════════════
+   UI
+═══════════════════════════════════════════════════ */
+function updateUI() {
+    document.getElementById('coins-coll').innerText  = S.collected;
+    document.getElementById('coins-total').innerText = S.coinsToCollect;
+    document.getElementById('lvl-disp').innerText    = `LEVEL ${S.level}`;
+}
+
+const DIFFS = [{km:6},{km:12},{km:18},{km:24}];
+function applyDiff(idx) {
+    S.baseDist = DIFFS[idx].km;
+    document.getElementById('diff-km').innerText = `~${DIFFS[idx].km} km`;
+    document.querySelectorAll('#diff-labels span').forEach((el,i)=>el.classList.toggle('active',i===idx));
+}
+document.getElementById('diff-slider').addEventListener('input', e=>applyDiff(+e.target.value));
+applyDiff(0);
+
+document.getElementById('quest-btn').addEventListener('click', generateRoute);
+document.getElementById('nav-btn').addEventListener('click',   toggleNav);
+</script>
+</body>
+</html>
