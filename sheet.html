@@ -3,129 +3,195 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Mobile Bottom Sheet</title>
+    <title>Scrollable Bottom Sheet</title>
     <style>
         :root {
             --header-height: 60px;
             --panel-min: 80px;
             --panel-mid: 62vh;
-            --panel-max: calc(100vh - var(--header-height) - 20px);
+            /* Lässt Platz für den Header */
+            --panel-max: calc(100vh - var(--header-height) - 10px); 
         }
 
         body {
             margin: 0;
-            font-family: sans-serif;
-            background-color: #f0f0f0;
-            overflow: hidden; /* Verhindert Scrollen der Seite selbst */
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: #e5e5e5;
+            overflow: hidden; 
         }
 
         header {
             height: var(--header-height);
-            background: #333;
+            background: #2c3e50;
             color: white;
             display: flex;
             align-items: center;
-            justify-content: center;
+            padding: 0 20px;
             position: fixed;
             top: 0;
             width: 100%;
             z-index: 10;
+            box-sizing: border-box;
         }
 
-        /* Das verschiebbare Panel */
+        /* Hauptinhalt im Hintergrund */
+        main {
+            padding-top: 80px;
+            text-align: center;
+            color: #777;
+        }
+
         #sheet {
             position: fixed;
             left: 0;
             right: 0;
             bottom: 0;
-            height: 100vh;
+            height: var(--panel-max); /* Maximale Höhe */
             background: white;
             border-radius: 20px 20px 0 0;
-            box-shadow: 0 -5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 -5px 25px rgba(0,0,0,0.15);
             z-index: 20;
-            transform: translateY(calc(100% - var(--panel-min)));
-            transition: transform 0.3s ease-out;
-            touch-action: none; /* Wichtig für die Gesten-Steuerung */
+            /* Startposition: Nur 80px schauen raus */
+            transform: translateY(calc(var(--panel-max) - var(--panel-min)));
+            transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+            display: flex;
+            flex-direction: column;
         }
 
-        /* Der Griff zum Ziehen */
-        .handle {
+        /* Der Griffbereich zum Ziehen */
+        .handle-area {
             width: 100%;
             height: 40px;
+            flex-shrink: 0;
             display: flex;
             justify-content: center;
             align-items: center;
             cursor: grab;
+            touch-action: none; /* Verhindert Browser-Scroll beim Ziehen */
         }
 
-        .handle::after {
-            content: "";
+        .handle-bar {
             width: 40px;
             height: 5px;
-            background: #ccc;
+            background: #dbdbdb;
             border-radius: 10px;
         }
 
+        /* Der scrollbare Bereich */
         .content {
-            padding: 20px;
-            overflow-y: auto;
-            height: calc(100% - 40px);
+            flex-grow: 1;
+            padding: 0 20px 40px 20px;
+            overflow-y: auto; /* Erlaubt vertikales Scrollen */
+            -webkit-overflow-scrolling: touch; /* Sanftes Scrollen auf iOS */
+        }
+
+        .content h2 {
+            margin-top: 0;
+            color: #333;
+        }
+
+        .list-item {
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            align-items: center;
+        }
+
+        .list-item .icon {
+            width: 40px;
+            height: 40px;
+            background: #3498db;
+            border-radius: 8px;
+            margin-right: 15px;
         }
     </style>
 </head>
 <body>
 
-<header>Header Bereich</header>
+<header>Meine App</header>
+
+<main>
+    <p>Hintergrund-Inhalt (Map oder Liste)</p>
+</main>
 
 <div id="sheet">
-    <div class="handle" id="handle"></div>
+    <div class="handle-area" id="handle">
+        <div class="handle-bar"></div>
+    </div>
+    
     <div class="content">
-        <h3>Mein Panel</h3>
-        <p>Wische am grauen Balken nach oben!</p>
-        <p>1. Stufe: 62%</p>
-        <p>2. Stufe: Bis unter den Header</p>
+        <h2>Entdecke Orte</h2>
+        <p>Dieses Panel ist nun scrollbar. Ziehe es am Balken hoch, um mehr zu sehen.</p>
+        
+        <!-- Viel Dummy-Content zum Scrollen -->
+        <div id="list-container">
+            <!-- Wird per JS befüllt oder manuell -->
+        </div>
     </div>
 </div>
 
 <script>
     const sheet = document.getElementById('sheet');
     const handle = document.getElementById('handle');
-    
+    const listContainer = document.getElementById('list-container');
+
+    // Dummy Content generieren
+    for (let i = 1; i <= 20; i++) {
+        listContainer.innerHTML += `
+            <div class="list-item">
+                <div class="icon"></div>
+                <div>
+                    <strong>Eintrag Nummer ${i}</strong><br>
+                    <small>Zusatzinfos zu diesem Element</small>
+                </div>
+            </div>`;
+    }
+
     let startY, startTransform;
-    const minTranslate = window.innerHeight - 80; // 80px sichtbar
-    const midTranslate = window.innerHeight * 0.38; // 62% Höhe (also 38% von oben)
-    const maxTranslate = 80; // Knapp unter Header
+    
+    // Dynamische Berechnung der Stopp-Punkte
+    const getSheetMetrics = () => {
+        const vh = window.innerHeight;
+        const maxH = vh - 70; // Unter Header
+        return {
+            min: maxH - 80,
+            mid: maxH - (vh * 0.62),
+            max: 0
+        };
+    };
 
     handle.addEventListener('touchstart', (e) => {
         startY = e.touches[0].clientY;
         const style = window.getComputedStyle(sheet);
         const matrix = new WebKitCSSMatrix(style.transform);
         startTransform = matrix.m42;
-        sheet.style.transition = 'none'; // Sofortige Reaktion beim Ziehen
+        sheet.style.transition = 'none';
     });
 
     handle.addEventListener('touchmove', (e) => {
         const deltaY = e.touches[0].clientY - startY;
         let newTranslate = startTransform + deltaY;
+        const metrics = getSheetMetrics();
         
         // Grenzen einhalten
-        if (newTranslate < maxTranslate) newTranslate = maxTranslate;
-        if (newTranslate > minTranslate) newTranslate = minTranslate;
+        if (newTranslate < metrics.max) newTranslate = metrics.max;
+        if (newTranslate > metrics.min) newTranslate = metrics.min;
         
         sheet.style.transform = `translateY(${newTranslate}px)`;
     });
 
     handle.addEventListener('touchend', (e) => {
-        sheet.style.transition = 'transform 0.3s ease-out';
+        sheet.style.transition = 'transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1)';
         const currentTranslate = new WebKitCSSMatrix(window.getComputedStyle(sheet).transform).m42;
+        const metrics = getSheetMetrics();
 
-        // Einrast-Logik
-        if (currentTranslate < (midTranslate + maxTranslate) / 2) {
-            sheet.style.transform = `translateY(${maxTranslate}px)`;
-        } else if (currentTranslate < (minTranslate + midTranslate) / 2) {
-            sheet.style.transform = `translateY(${midTranslate}px)`;
+        // Einrasten
+        if (currentTranslate < (metrics.mid + metrics.max) / 2) {
+            sheet.style.transform = `translateY(${metrics.max}px)`;
+        } else if (currentTranslate < (metrics.min + metrics.mid) / 2) {
+            sheet.style.transform = `translateY(${metrics.mid}px)`;
         } else {
-            sheet.style.transform = `translateY(${minTranslate}px)`;
+            sheet.style.transform = `translateY(${metrics.min}px)`;
         }
     });
 </script>
