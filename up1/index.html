@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>GravelGuide 3D · Fahrradroutenplaner</title>
+<link rel="stylesheet" href="style.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+</head>
+<body>
+
+<div id="api-overlay">
+  <div class="dlg g">
+    <div class="dlg-head">
+      <div class="dlg-logo">GRAVEL<em>GUIDE</em></div>
+      <div class="dlg-sub">Pro · 3D Routenplaner · Steigungsheatmap · Terrain</div>
+    </div>
+    <div class="dlg-body">
+      <p>Für <strong>3D-Gelände & Satelliten</strong> wird ein kostenloser <strong>MapTiler API Key</strong> benötigt. Kostenlos auf <a href="https://cloud.maptiler.com/account/keys/" target="_blank">maptiler.com</a> — 100.000 Tiles/Monat, keine Kreditkarte.</p>
+      <div class="dlg-lbl">MapTiler API Key (optional)</div>
+      <input class="dlg-inp" id="api-inp" placeholder="AbCdEfGh… (Enter drücken oder leer lassen)" autocomplete="off">
+      <div class="dlg-note">⚡ <strong>Ohne Key:</strong> Routing, Höhenprofil & Steigungsheatmap funktionieren vollständig — 3D-Terrain & Satellit benötigen einen Key.</div>
+      <div class="dlg-acts">
+        <button class="btn" onclick="launch('')">Demo-Modus</button>
+        <button class="btn ok" onclick="launch(document.getElementById('api-inp').value.trim())">Starten →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── LIMIT REACHED MODAL ────────────────────── -->
+<div id="limit-overlay">
+  <div class="dlg g">
+    <div class="dlg-head">
+      <div class="dlg-logo">GRAVEL<em>GUIDE</em></div>
+      <div class="dlg-sub" style="color:var(--orange)">⚠️ Kartenlimit erreicht</div>
+    </div>
+    <div class="dlg-body">
+      <p>Das monatliche Kartenlimit ist aufgebraucht. Du kannst die App weiter im <strong>Demo-Modus</strong> nutzen (Routing & Höhenprofil funktionieren), oder einen eigenen kostenlosen MapTiler-Key eingeben.</p>
+      <div class="dlg-lbl">Eigener MapTiler API Key (optional)</div>
+      <input class="dlg-inp" id="limit-key-inp" placeholder="Deinen Key hier eingeben…" autocomplete="off">
+      <div class="dlg-note">🔑 Kostenlosen Key auf <a href="https://cloud.maptiler.com/account/keys/" target="_blank">maptiler.com</a> erstellen — 100.000 Tiles/Monat, keine Kreditkarte nötig.</div>
+      <div class="dlg-acts">
+        <button class="btn" onclick="dismissLimitModal()">Demo-Modus fortsetzen</button>
+        <button class="btn ok" onclick="applyCustomKey()">Key aktivieren →</button>
+      </div>
+    </div>
+  </div>
+</div>
+  <div id="map"></div>
+  <div id="loading" class="g"><div class="spin"></div><span id="load-txt">Wird geladen…</span></div>
+  <div id="hint">Karte gedrückt halten um Wegpunkt zu setzen</div>
+  <!-- Ghost pin + hold ring for hold-to-place -->
+  <div id="wp-ghost-pin"></div>
+  <div id="wp-hold-ring"><svg viewBox="0 0 48 48" width="48" height="48"><circle class="track" cx="24" cy="24" r="22"/><circle class="prog" id="wp-hold-prog" cx="24" cy="24" r="22" stroke="var(--accent)" transform="rotate(-90 24 24)"/></svg></div>
+  <div id="rt-tip"></div>
+</div>
+
+<!-- Mobile-only header (hidden on desktop) -->
+<header id="header" class="g">
+  <div class="logo" onclick="locateMe()" style="cursor:pointer;" title="Zum aktuellen Standort">GRAVEL<em>GUIDE</em><span class="logo-badge">3D</span></div>
+  <div id="srch-wrap">
+    <input id="srch-inp" type="text" placeholder="Ort suchen…" autocomplete="off">
+    <button id="srch-clear" onclick="clearSearch()">✕</button>
+    <div id="srch-drop"></div>
+  </div>
+  <div class="hdr-btns">
+    <button class="btn layer-stripes-btn" id="mob-layer-btn" onclick="cycleLayerMode()" style="padding:7px 10px;" title="Karte / Satellit / Hybrid"><svg width="16" height="13" viewBox="0 0 16 13" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="1.5" y1="12" x2="6.5" y2="1" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/><line x1="5.5" y1="12" x2="10.5" y2="1" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/><line x1="9.5" y1="12" x2="14.5" y2="1" stroke="#00d4ff" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <div id="user-avatar-mob" class="user-avatar" onclick="openProfileMob()" title="Profil"></div>
+  </div>
+</header>
+
+<!-- map controls moved into sidebar -->
+
+<div id="elev-panel" class="g">
+  <div class="elev-hdr">
+    <div class="elev-title">▲ Höhenprofil</div>
+    <div class="elev-pos" id="elev-pos"></div>
+  </div>
+  <canvas id="elev-canvas"></canvas>
+</div>
+
+<aside id="sidebar" class="g">
+  <!-- ── SIDEBAR HEADER (desktop only) ── -->
+  <div class="sb-top">
+      <div class="sb-top-logo">
+      <div class="logo" onclick="locateMe()" style="font-size:18px;cursor:pointer;" title="Zum aktuellen Standort">GRAVEL<em>GUIDE</em><span class="logo-badge">3D</span></div>
+      <div id="user-avatar-desk" class="user-avatar" style="margin-left:auto;" onclick="openProfileTab()" title="Profil"></div>
+    </div>
+    <div class="sb-srch">
+      <input id="srch-inp-desk" type="text" class="set-inp" placeholder="Ort suchen…" autocomplete="off" style="width:100%;text-align:left;padding-left:12px;font-family:var(--font);font-size:13px;">
+      <button id="srch-clear-desk" onclick="clearSearchDesk()" style="position:absolute;right:18px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;display:none;">✕</button>
+      <div id="srch-drop-desk" style="position:absolute;top:calc(100% - 1px);left:10px;right:10px;background:rgba(8,12,20,.97);backdrop-filter:var(--blur);border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;display:none;z-index:200;box-shadow:0 16px 48px rgba(0,0,0,.6);"></div>
+    </div>
+    <div class="sb-top-actions">
+      <button class="btn" onclick="undoWp()" style="flex:1;justify-content:center;padding:5px 6px;font-size:11px;">↩ Undo</button>
+      <button class="btn danger" onclick="clearAll()" style="flex:1;justify-content:center;padding:5px 6px;font-size:11px;">✕ Clear</button>
+      <button class="btn" id="hdr-layer-btn" onclick="cycleLayerMode()" title="Karte / Satellit / Hybrid" style="flex:1;justify-content:center;padding:5px 6px;font-size:11px;gap:5px;"><svg width="14" height="11" viewBox="0 0 14 11" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="1" y1="10" x2="5.5" y2="1" stroke="#00d4ff" stroke-width="1.8" stroke-linecap="round"/><line x1="4.5" y1="10" x2="9" y2="1" stroke="#00d4ff" stroke-width="1.8" stroke-linecap="round"/><line x1="8" y1="10" x2="12.5" y2="1" stroke="#00d4ff" stroke-width="1.8" stroke-linecap="round"/></svg> Karte</button>
+      <button class="btn" onclick="shareRoute()" style="flex:1;justify-content:center;padding:5px 6px;font-size:11px;"><svg width="14" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="5.5" y1="5" x2="10.5" y2="5"/><path d="M4 2H3a3 3 0 0 0 0 6h2"/><path d="M11 2h1a3 3 0 0 1 0 6h-1"/></svg></button>
+    </div>
+  </div>
+  <nav class="tab-nav">
+    <button class="tab-btn active" onclick="switchTab('t-stats',this)">Stats</button>
+    <button class="tab-btn" onclick="switchTab('t-route',this)">Route</button>
+    <button class="tab-btn" onclick="switchTab('t-tools',this)">Tools</button>
+    <button class="tab-btn" onclick="switchTab('t-profil',this)">Profil</button>
+  </nav>
+  <div class="tab-body">
+    <div class="tab-pane on" id="t-stats">
+      <div class="sb">
+        <div class="sb-title">Routenstatistik</div>
+        <div class="stat-grid">
+          <div class="sc"><div class="sv" id="s-dist">—</div><div class="sl">Distanz</div></div>
+          <div class="sc"><div class="sv" id="s-time" style="color:var(--accent)">—</div><div class="sl">Fahrzeit</div></div>
+          <div class="sc"><div class="sv" id="s-up" style="color:var(--red)">—</div><div class="sl">Aufstieg ↑</div></div>
+          <div class="sc"><div class="sv" id="s-down" style="color:var(--green)">—</div><div class="sl">Abstieg ↓</div></div>
+          <div class="sc"><div class="sv" id="s-grade" style="color:var(--orange)">—</div><div class="sl">Max. Steig.</div></div>
+          <div class="sc"><div class="sv" id="s-speed" style="color:var(--yellow)">—</div><div class="sl">Ø Tempo</div></div>
+        </div>
+        <div class="cal-card">
+          <div class="cal-ico"><svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1C5.5 4 3 5.5 3 10a5 5 0 0 0 10 0c0-2-.7-3.5-1.5-5C11 7 10 9 9 9S8 7.5 8 1z"/><path d="M6 14.5a2 2 0 0 0 4 0c0-1.5-2-2.5-2-2.5s-2 1-2 2.5z" fill="var(--orange)" stroke="none"/></svg></div>
+          <div><div class="cal-v" id="s-cal">—</div><div class="cal-l">Kalorien (kcal)</div></div>
+        </div>
+      </div>
+      
+      <div class="sb">
+        <div class="sb-title">Steigungsfarben</div>
+        <div class="grad-bar"></div>
+        <div class="grad-lbls"><span>≤-15%</span><span>-5%</span><span>Flach</span><span>+5%</span><span>+10%</span><span>+15%</span><span>≥20%</span></div>
+      </div>
+    </div>
+
+    <div class="tab-pane" id="t-route">
+      <div style="padding:9px 13px 4px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);">
+        <span style="font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)">Wegpunkte <span id="wp-count" style="color:var(--accent);font-size:12px">0</span></span>
+        <div style="display:flex;gap:5px;">
+          <button class="btn" style="padding:5px 9px;font-size:11px;" onclick="undoWp()">↩</button>
+          <button class="btn danger" style="padding:5px 9px;font-size:11px;" onclick="clearAll()">✕</button>
+          <button class="btn" style="padding:5px 9px;font-size:11px;" onclick="mapFitRoute()" title="Route zentrieren"><svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="3"/><line x1="7.5" y1="1" x2="7.5" y2="4.5"/><line x1="7.5" y1="10.5" x2="7.5" y2="14"/><line x1="1" y1="7.5" x2="4.5" y2="7.5"/><line x1="10.5" y1="7.5" x2="14" y2="7.5"/></svg></button>
+        </div>
+      </div>
+      <div id="wp-list"><div class="wp-empty">Klicke auf die Karte<br>um Wegpunkte zu setzen</div></div>
+      <div class="sb">
+        <div class="sb-title">Route speichern</div>
+        <div style="display:flex;gap:7px;margin-bottom:0;">
+          <input class="set-inp" id="save-name-inp" type="text" placeholder="Routenname…" style="flex:1;width:auto;text-align:left;" value="">
+          <button class="btn ok" style="padding:7px 12px;" onclick="saveRoute()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1h9l3 3v9H1z"/><rect x="3.5" y="1" width="5" height="3.5" rx="0.5"/><rect x="2.5" y="7.5" width="9" height="5" rx="0.5"/></svg></button>
+        </div>
+      </div>
+      <div class="sb">
+        <div class="sb-title">Gespeicherte Routen</div>
+        <div id="saves-list"><div class="wp-empty" style="padding:16px 0;">Noch keine Routen gespeichert.</div></div>
+      </div>
+      <div class="sb" style="border-bottom:none;">
+        <div class="mc-grid">
+          <button class="mc-btn" onclick="loadOsmRoutes()"><svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1,1.5 5,3.5 9,1 13,2.5 13,10.5 9,9 5,11 1,9.5"/><line x1="5" y1="3.5" x2="5" y2="11"/><line x1="9" y1="1" x2="9" y2="9"/></svg> OSM Routen laden</button>
+        </div>
+      </div>
+      <div class="sb" id="osm-routes-panel" style="display:none;border-bottom:none;">
+        <div class="sb-title" style="display:flex;align-items:center;justify-content:space-between;">
+          <span>Fahrradrouten in der Region</span>
+          <button onclick="clearOsmRoutes()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;">✕</button>
+        </div>
+        <div id="osm-routes-list"><div class="wp-empty" style="padding:12px 0;">Lade Routen…</div></div>
+      </div>
+      <!-- ── LUCKY: RANDOM ROUTE ── -->
+      <div class="sb lucky-section" style="border-top:none;border-bottom:none;margin:10px 0 0;">
+        <div class="sb-title" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">
+          <span style="line-height:0;"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="12" height="12" rx="2"/><circle cx="4.5" cy="4.5" r="1" fill="currentColor" stroke="none"/><circle cx="9.5" cy="4.5" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="9.5" r="1" fill="currentColor" stroke="none"/><circle cx="9.5" cy="9.5" r="1" fill="currentColor" stroke="none"/></svg></span><span>Lucky</span>
+        </div>
+        <button class="btn lucky-btn" onclick="generateRandomRoute(this)">
+          <span id="lucky-dice-dsk" style="display:inline-block;line-height:0;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="14" height="14" rx="2.5"/><circle cx="5" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="11" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg></span> Random Route
+        </button>
+        <div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Streckenlänge</span>
+          <span id="lucky-km-val" style="font-family:var(--mono);font-size:13px;color:#c084fc;font-weight:600;">15 km</span>
+        </div>
+        <div class="sl-row" style="margin-bottom:0;">
+          <span>5</span>
+          <input type="range" id="lucky-slider" min="5" max="50" step="5" value="15" oninput="updateLuckyKm(this.value)" style="accent-color:#c084fc;">
+          <span>50</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-pane" id="t-tools">
+      <!-- ── STRECKENOPTIONEN (top) ── -->
+      <div class="sb">
+        <div class="sb-title"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><path d="M1 3h12M1 3l3-2M1 3l3 2"/><path d="M13 11H1M13 11l-3-2M13 11l-3 2"/><path d="M4 7h6"/></svg> Streckenoptionen</div>
+        <div id="dsk-brouter-profs">
+          <div style="display:flex;flex-wrap:wrap;gap:5px;" id="bp-grid-dsk"></div>
+        </div>
+      </div>
+      <!-- ── ROUTING ── -->
+      <div class="sb">
+        <div class="sb-title">Routing</div>
+        <div class="mc-grid">
+          <button class="mc-btn" onclick="locateMe()"><svg width="12" height="15" viewBox="0 0 12 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1C3.2 1 1 3.2 1 6c0 4 5 8.5 5 8.5S11 10 11 6c0-2.8-2.2-5-5-5z"/><circle cx="6" cy="6" r="1.8"/></svg> Mein Ort</button>
+          <button class="mc-btn green" id="btn-navi-ctrl" onclick="startNavi()"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3" cy="9.5" r="2.2"/><circle cx="13" cy="9.5" r="2.2"/><path d="M3 9.5L6 3h6l1.5 6.5"/><path d="M6 3L8 9.5"/><line x1="4.5" y1="3" x2="8" y2="3"/></svg> Navigation</button>
+        </div>
+      </div>
+      <!-- ── EXPORT & IMPORT ── -->
+      <div class="sb">
+        <div class="sb-title">Export &amp; Import</div>
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="exportGPX()"><span class="ti"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6.5" y1="1" x2="6.5" y2="11"/><polyline points="3,8 6.5,12 10,8"/><line x1="1" y1="15" x2="12" y2="15"/></svg></span>GPX Export</button>
+          <button class="tool-btn" onclick="document.getElementById('gpx-file').click()"><span class="ti"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6.5" y1="11" x2="6.5" y2="1"/><polyline points="3,4 6.5,0.5 10,4"/><line x1="1" y1="15" x2="12" y2="15"/></svg></span>GPX Import</button>
+          <button class="tool-btn" onclick="exportGMaps()"><span class="ti"><svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1,1.5 5,3.5 9,1 13,2.5 13,10.5 9,9 5,11 1,9.5"/><line x1="5" y1="3.5" x2="5" y2="11"/><line x1="9" y1="1" x2="9" y2="9"/></svg></span>Google Maps</button>
+          <button class="tool-btn" onclick="shareRoute()"><span class="ti"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="5.5" y1="5" x2="10.5" y2="5"/><path d="M4 2H3a3 3 0 0 0 0 6h2"/><path d="M11 2h1a3 3 0 0 1 0 6h-1"/></svg></span>Link teilen</button>
+        </div>
+      </div>
+      <!-- ── KARTE ── -->
+      <div class="sb" style="border-bottom:none;">
+        <div class="sb-title">Karte</div>
+        <div class="tool-grid">
+          <button class="tool-btn" id="t-km" onclick="toggleKmMarkers()"><span class="ti"><svg width="15" height="9" viewBox="0 0 15 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0.75" y="0.75" width="13.5" height="7.5" rx="1.5"/><line x1="3" y1="8.25" x2="3" y2="5"/><line x1="6" y1="8.25" x2="6" y2="3.5"/><line x1="9" y1="8.25" x2="9" y2="5"/><line x1="12" y1="8.25" x2="12" y2="3.5"/></svg></span>KM-Marker</button>
+          <button class="tool-btn" onclick="mapFitRoute()"><span class="ti"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="3"/><line x1="7.5" y1="1" x2="7.5" y2="4.5"/><line x1="7.5" y1="10.5" x2="7.5" y2="14"/><line x1="1" y1="7.5" x2="4.5" y2="7.5"/><line x1="10.5" y1="7.5" x2="14" y2="7.5"/></svg></span>Zentrieren</button>
+          <button class="tool-btn" onclick="locateMe()"><span class="ti"><svg width="13" height="17" viewBox="0 0 13 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 1C3.5 1 1 3.5 1 6.5c0 4.5 5.5 9.5 5.5 9.5s5.5-5 5.5-9.5C12 3.5 9.5 1 6.5 1z"/><circle cx="6.5" cy="6.5" r="2"/></svg></span>Mein Ort</button>
+          <button class="tool-btn" id="t-hide" onclick="toggleHide()"><span class="ti"><svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 6S4 1 8.5 1 16 6 16 6 13 11 8.5 11 1 6 1 6z"/><circle cx="8.5" cy="6" r="2.5"/></svg></span>Karte ein/aus</button>
+          <button class="tool-btn" id="t-meteo" onclick="toggleMeteo()"><span class="ti"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><rect x="0.5" y="0.5" width="4" height="15" rx="1.5"/><rect x="7.5" y="0.5" width="4" height="15" rx="1.5"/></svg></span>Meteo Pause</button>
+        </div>
+      </div>
+      <!-- ── KARTENEBENEN ── -->
+      <div class="sb" style="border-top:1px solid var(--border);">
+        <div class="sb-title">Kartenebenen</div>
+        <div class="mc-grid">
+          <button class="mc-btn active" id="btn-3d" onclick="toggle3D()"><svg width="14" height="11" viewBox="0 0 14 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polyline points="1,10 4,2 7,6 9,3 13,10"/></svg> 3D-Terrain</button>
+          <button class="mc-btn" id="btn-sat" onclick="toggleSat()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="6" r="2"/><line x1="2.5" y1="11.5" x2="6" y2="8"/><line x1="10" y1="4" x2="12" y2="2"/><line x1="2" y1="5.5" x2="4" y2="3.5"/><line x1="9.5" y1="1.5" x2="11.5" y2="1.5"/><line x1="10.5" y1="0.5" x2="10.5" y2="2.5"/></svg> Satellit</button>
+          <button class="mc-btn" id="btn-mesh" onclick="toggleMesh()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="7,1 12.2,4 12.2,10 7,13 1.8,10 1.8,4"/></svg> Mesh</button>
+          <button class="mc-btn active" id="btn-wp-vis" onclick="toggleGlobalWps()"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 6S3.8 1 8 1s7 5 7 5-2.8 5-7 5-7-5-7-5z"/><circle cx="8" cy="6" r="2"/></svg> Wegpunkte</button>
+        </div>
+      </div>
+      <!-- ── OPTIK ── -->
+      <div class="sb" style="border-bottom:none;border-top:1px solid var(--border);">
+        <div class="sb-title"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><circle cx="7" cy="7" r="5.5"/><circle cx="5" cy="5.5" r="1.2" fill="var(--red)" stroke="none"/><circle cx="9" cy="5.5" r="1.2" fill="var(--accent)" stroke="none"/><circle cx="5" cy="8.5" r="1.2" fill="var(--green)" stroke="none"/><circle cx="9" cy="8.5" r="1.2" fill="var(--orange)" stroke="none"/></svg> Optik</div>
+        <div style="margin-bottom:11px;">
+          <button class="mc-btn optik-sky-btn" onclick="toggleSky()" style="width:100%;justify-content:center;gap:7px;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><line x1="8" y1="1" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="15" y2="8"/><line x1="2.9" y1="2.9" x2="4.2" y2="4.2"/><line x1="11.8" y1="11.8" x2="13.1" y2="13.1"/><line x1="11.8" y1="2.9" x2="13.1" y2="4.2"/><line x1="2.9" y1="11.8" x2="4.2" y2="13.1"/></svg> Himmel <span style="font-size:9px;opacity:.6;text-transform:none;letter-spacing:0;">(Blauer Atmosphären-Himmel)</span></button>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><circle cx="6" cy="6" r="2"/><line x1="6" y1="0.5" x2="6" y2="2"/><line x1="6" y1="10" x2="6" y2="11.5"/><line x1="0.5" y1="6" x2="2" y2="6"/><line x1="10" y1="6" x2="11.5" y2="6"/><line x1="1.7" y1="1.7" x2="2.7" y2="2.7"/><line x1="9.3" y1="9.3" x2="10.3" y2="10.3"/></svg> Helligkeit</span>
+            <span class="optik-brightness-val" style="font-family:var(--mono);font-size:11px;color:var(--accent);">100%</span>
+          </div>
+          <input type="range" class="optik-brightness-inp" min="30" max="200" value="100" oninput="setOptikBrightness(this.value)" style="width:100%;accent-color:var(--accent);height:4px;cursor:pointer;">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px"><circle cx="6" cy="6" r="5"/><path d="M6 1v10M6 1A5 5 0 0 1 6 11z" fill="currentColor" stroke="none"/><line x1="6" y1="1" x2="6" y2="11" stroke="currentColor" stroke-width="1"/></svg> Kontrast</span>
+            <span class="optik-contrast-val" style="font-family:var(--mono);font-size:11px;color:var(--accent);">100%</span>
+          </div>
+          <input type="range" class="optik-contrast-inp" min="50" max="200" value="100" oninput="setOptikContrast(this.value)" style="width:100%;accent-color:var(--accent);height:4px;cursor:pointer;">
+        </div>
+        <!-- ── GELÄNDEÜBERHÖHUNG ── -->
+        <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="13" height="10" viewBox="0 0 13 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="vertical-align:-1px"><polyline points="0,9 3,2 6,5.5 8.5,2.5 12,9"/></svg> Geländeüberhöhung</span>
+            <span class="sl-val" id="exag-v">1.5×</span>
+          </div>
+          <div class="sl-row">
+            <span>1×</span>
+            <input type="range" id="exag-sl" min="1" max="5" step="0.1" value="1.5" oninput="setExag(this.value)">
+            <span>5×</span>
+          </div>
+        </div>
+      </div>
+      <!-- ── POWER SAVE NAVI ── -->
+      <div class="sb ps-section" style="border-top:1px solid rgba(0,230,118,.2);border-bottom:none;">
+        <div class="ps-master-row">
+          <div>
+            <div class="ps-master-lbl"><svg width="18" height="11" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><rect x="0.75" y="0.75" width="13.5" height="9.5" rx="1.5"/><line x1="15.5" y1="3.5" x2="15.5" y2="7.5" stroke-width="2.5"/><rect x="2.5" y="2.5" width="7" height="6" rx="0.5" fill="currentColor" stroke="none"/></svg> Stromspar-Navigation</div>
+            <div class="ps-master-sub">Aktiv nur während der Live-Navigation</div>
+          </div>
+          <label class="ts" style="flex-shrink:0;"><input type="checkbox" id="ps-master-dsk" checked onchange="togglePsMaster(this.checked)"><div class="ts-sl" style="background:rgba(0,230,118,.22);"></div></label>
+        </div>
+        <div class="ps-opts on" id="ps-opts-dsk">
+          <div class="ps-opt-row" onclick="togglePs('gps')"><div class="ps-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 8A5.5 5.5 0 0 1 8 2.5"/><path d="M13.5 8A5.5 5.5 0 0 1 8 13.5"/><path d="M4.5 8A3.5 3.5 0 0 1 8 4.5"/><path d="M11.5 8A3.5 3.5 0 0 1 8 11.5"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg></div><div class="ps-info"><div class="ps-name">GPS-Intervall</div><div class="ps-desc">Update nur alle 5 Sek. / 10 Meter</div></div><div class="ps-badge on" id="ps-gps-dsk">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('display')"><div class="ps-ico"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="1" width="14" height="9" rx="1.5"/><line x1="5" y1="13" x2="11" y2="13"/><line x1="8" y1="10" x2="8" y2="13"/></svg></div><div class="ps-info"><div class="ps-name">Bildschirm 1–2 Hz</div><div class="ps-desc">Karten-Refresh gedrosselt</div></div><div class="ps-badge on" id="ps-display-dsk">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('cache')"><div class="ps-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4.5l7-3.5 7 3.5v7l-7 3.5-7-3.5z"/><line x1="1" y1="4.5" x2="8" y2="8"/><line x1="15" y1="4.5" x2="8" y2="8"/><line x1="8" y1="8" x2="8" y2="15.5"/></svg></div><div class="ps-info"><div class="ps-name">Routen-Cache</div><div class="ps-desc">Kacheln vorab laden &amp; speichern</div></div><div class="ps-badge on" id="ps-cache-dsk">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('darkhud')"><div class="ps-ico"><svg width="14" height="16" viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8A6 6 0 1 1 5 1a4.5 4.5 0 1 0 7 7z" fill="currentColor" stroke="currentColor"/></svg></div><div class="ps-info"><div class="ps-name">Minimales HUD</div><div class="ps-desc">Backdrop-Blur &amp; Glow deaktiviert</div></div><div class="ps-badge on" id="ps-darkhud-dsk">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('noanim')"><div class="ps-ico"><svg width="14" height="17" viewBox="0 0 14 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9V2.5a1.2 1.2 0 0 1 2.4 0V7m0-1V2a1.2 1.2 0 0 1 2.4 0v5m0-1V3.5a1.2 1.2 0 0 1 2.4 0v5C12.2 12 10 15.5 7 15.5S1.8 12 1.8 9V7a1.2 1.2 0 0 1 2.4 0v2"/></svg></div><div class="ps-info"><div class="ps-name">Animationen aus</div><div class="ps-desc">Kamera-Übergänge minimal</div></div><div class="ps-badge on" id="ps-noanim-dsk">AN</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PROFIL PANE ── -->
+    <div class="tab-pane" id="t-profil">
+      <!-- Dynamisch durch Appwrite-Auth befüllt -->
+    <!-- ── PROFIL PANE ── -->
+    <div class="tab-pane" id="t-profil">
+      <!-- Dynamisch durch Appwrite-Auth befüllt -->
+    </div>
+    <!-- weight-inp + custom-spd-inp müssen im DOM bleiben (für Kalorienkalkulation) -->
+    <div style="display:none;">
+      <input id="weight-inp" type="number" value="75" min="30" max="200" oninput="localStorage.setItem('vn_weight',this.value);recalcStats()">
+      <input id="custom-spd-inp" type="number" value="18" min="5" max="60" oninput="applyCustomSpeed()">
+      <button id="spd-casual" onclick="setSpeed(15,this)"></button>
+      <button id="spd-sport"  onclick="setSpeed(22,this)"></button>
+      <button id="spd-race"   onclick="setSpeed(30,this)"></button>
+      <button id="spd-custom" onclick="setSpeed(null,this,'custom')"></button>
+    </div>
+  </div>
+</aside>
+
+<div id="bsheet">
+  <div id="sh-handle" onclick="toggleSheet()"><div class="sh-bar"></div></div>
+  <div id="sh-peek">
+    <div class="pk-stat"><div class="pk-v" id="pm-dist">—</div><div class="pk-l">km</div></div>
+    <div class="pk-stat"><div class="pk-v" id="pm-up" style="color:var(--red)">—</div><div class="pk-l">↑ Hm</div></div>
+    <div class="pk-stat"><div class="pk-v" id="pm-time" style="color:var(--accent)">—</div><div class="pk-l">Zeit</div></div>
+    <div class="pk-stat"><div class="pk-v" id="pm-cal" style="color:var(--orange)">—</div><div class="pk-l">kcal</div></div>
+    <button id="mob-navi-stop" onclick="stopNavi()">✕ Stop</button>
+  </div>
+  <div id="sh-body">
+    <div class="sh-tabs">
+      <button class="sh-tab active" onclick="switchSheetTab('st-stats',this)">Stats</button>
+      <button class="sh-tab" onclick="switchSheetTab('st-route',this)">Route</button>
+      <button class="sh-tab" onclick="switchSheetTab('st-tools',this)">Tools</button>
+      <button class="sh-tab" onclick="switchSheetTab('st-profil',this)">Profil</button>
+    </div>
+
+    <!-- ── STATS PANE ── -->
+    <div id="st-stats" class="sh-pane on">
+      <div class="stat-grid" style="gap:6px;margin-bottom:8px;">
+        <div class="sc"><div class="sv" id="ms-dist">—</div><div class="sl">Distanz</div></div>
+        <div class="sc"><div class="sv" id="ms-time" style="color:var(--accent)">—</div><div class="sl">Fahrzeit</div></div>
+        <div class="sc"><div class="sv" id="ms-up" style="color:var(--red)">—</div><div class="sl">Aufstieg</div></div>
+        <div class="sc"><div class="sv" id="ms-down" style="color:var(--green)">—</div><div class="sl">Abstieg</div></div>
+        <div class="sc"><div class="sv" id="ms-grade" style="color:var(--orange)">—</div><div class="sl">Max. Steig.</div></div>
+        <div class="sc"><div class="sv" id="ms-speed" style="color:var(--yellow)">—</div><div class="sl">Ø Tempo</div></div>
+      </div>
+      <div class="cal-card"><div class="cal-ico"><svg width="16" height="20" viewBox="0 0 16 20" fill="none" stroke="var(--orange)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1C5.5 4 3 5.5 3 10a5 5 0 0 0 10 0c0-2-.7-3.5-1.5-5C11 7 10 9 9 9S8 7.5 8 1z"/><path d="M6 14.5a2 2 0 0 0 4 0c0-1.5-2-2.5-2-2.5s-2 1-2 2.5z" fill="var(--orange)" stroke="none"/></svg></div><div><div class="cal-v" id="ms-cal">—</div><div class="cal-l">Kalorien</div></div></div>
+      <!-- Mobile Höhenprofil -->
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div class="sb-title">Höhenprofil</div>
+        <div style="position:relative;height:100px;border-radius:var(--r-md);overflow:hidden;background:rgba(0,0,0,.28);border:1px solid var(--border);">
+          <canvas id="mob-elev-chart" style="width:100%;height:100%;display:block;"></canvas>
+          <div id="mob-elev-empty" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--dim);">Route berechnen für Profil</div>
+        </div>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div class="grad-bar" style="margin-bottom:4px;"></div>
+        <div class="grad-lbls"><span>≤-15%</span><span>-5%</span><span>Flach</span><span>+5%</span><span>+10%</span><span>+15%</span><span>≥20%</span></div>
+      </div>
+    </div>
+
+    <!-- ── ROUTE PANE ── -->
+    <div id="st-route" class="sh-pane">
+      <div style="display:flex;gap:5px;margin-bottom:9px;flex-wrap:wrap;">
+        <button class="btn" style="padding:6px 10px;font-size:11px;flex:1;" onclick="undoWp()">↩ Undo</button>
+        <button class="btn danger" style="padding:6px 10px;font-size:11px;flex:1;" onclick="clearAll()">✕ Clear</button>
+        <button class="btn ok" style="padding:6px 10px;font-size:11px;flex:1;" onclick="mapFitRoute()"><svg width="14" height="14" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="3"/><line x1="7.5" y1="1" x2="7.5" y2="4.5"/><line x1="7.5" y1="10.5" x2="7.5" y2="14"/><line x1="1" y1="7.5" x2="4.5" y2="7.5"/><line x1="10.5" y1="7.5" x2="14" y2="7.5"/></svg> Fit</button>
+      </div>
+      <div id="mob-wp-list"><div class="wp-empty">Keine Wegpunkte gesetzt.<br>Karte antippen.</div></div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div class="sb-title">Route speichern</div>
+        <div style="display:flex;gap:7px;margin-bottom:8px;">
+          <input class="set-inp" id="mob-save-inp" type="text" placeholder="Routenname…" style="flex:1;width:auto;text-align:left;">
+          <button class="btn ok" style="padding:7px 12px;" onclick="saveRoute()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 1h9l3 3v9H1z"/><rect x="3.5" y="1" width="5" height="3.5" rx="0.5"/><rect x="2.5" y="7.5" width="9" height="5" rx="0.5"/></svg></button>
+        </div>
+        <div class="sb-title" style="margin-bottom:6px;">Gespeicherte Routen</div>
+        <div id="mob-saves-list"><div class="wp-empty" style="padding:10px 0;">Noch keine Routen gespeichert.</div></div>
+      </div>
+      <div style="margin-top:8px;padding-top:8px;border-top:1px solid var(--border);">
+        <div class="mc-grid" style="margin-bottom:8px;">
+          <button class="mc-btn" onclick="loadOsmRoutes()"><svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1,1.5 5,3.5 9,1 13,2.5 13,10.5 9,9 5,11 1,9.5"/><line x1="5" y1="3.5" x2="5" y2="11"/><line x1="9" y1="1" x2="9" y2="9"/></svg> OSM Routen laden</button>
+        </div>
+        <div id="mob-osm-panel" style="display:none;">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:9px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)">Fahrradrouten</span>
+            <button onclick="clearOsmRoutes()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:0 2px;">✕</button>
+          </div>
+          <div id="mob-osm-list"><div class="wp-empty" style="padding:8px 0;">Lade…</div></div>
+        </div>
+      </div>
+      <!-- ── LUCKY: RANDOM ROUTE (mobile) ── -->
+      <div style="margin-top:8px;padding:11px 12px;border-radius:var(--r-md);background:linear-gradient(135deg,rgba(168,85,247,.06),rgba(0,212,255,.04));border:1px solid rgba(168,85,247,.25);">
+        <div class="sb-title" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;color:#c084fc;">
+          <span style="line-height:0;"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="12" height="12" rx="2"/><circle cx="4.5" cy="4.5" r="1" fill="currentColor" stroke="none"/><circle cx="9.5" cy="4.5" r="1" fill="currentColor" stroke="none"/><circle cx="4.5" cy="9.5" r="1" fill="currentColor" stroke="none"/><circle cx="9.5" cy="9.5" r="1" fill="currentColor" stroke="none"/></svg></span><span>Lucky</span>
+        </div>
+        <button class="btn lucky-btn" onclick="generateRandomRoute(this)">
+          <span id="lucky-dice-mob" style="display:inline-block;line-height:0;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="1" width="14" height="14" rx="2.5"/><circle cx="5" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="5" r="1.2" fill="currentColor" stroke="none"/><circle cx="5" cy="11" r="1.2" fill="currentColor" stroke="none"/><circle cx="11" cy="11" r="1.2" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg></span> Random Route
+        </button>
+        <div style="margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.08em;text-transform:uppercase;">Streckenlänge</span>
+          <span id="mob-lucky-km-val" style="font-family:var(--mono);font-size:13px;color:#c084fc;font-weight:600;">15 km</span>
+        </div>
+        <div class="sl-row" style="margin-bottom:0;">
+          <span>5</span>
+          <input type="range" id="mob-lucky-slider" min="5" max="50" step="5" value="15" oninput="updateLuckyKm(this.value)" style="accent-color:#c084fc;">
+          <span>50</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TOOLS PANE ── -->
+    <div id="st-tools" class="sh-pane">
+      <!-- ── STRECKENOPTIONEN (top) ── -->
+      <div style="margin-bottom:9px;padding:11px 12px;background:rgba(0,212,255,.028);border:1px solid rgba(0,212,255,.18);border-radius:var(--r-md);">
+        <div class="sb-title" style="margin-bottom:8px;"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><path d="M1 3h12M1 3l3-2M1 3l3 2"/><path d="M13 11H1M13 11l-3-2M13 11l-3 2"/><path d="M4 7h6"/></svg> Streckenoptionen</div>
+        <div id="mob-brouter-profs">
+          <div style="display:flex;flex-wrap:wrap;gap:5px;" id="mob-bp-grid"></div>
+        </div>
+      </div>
+      <!-- Routing -->
+      <div style="margin-bottom:9px;border-top:1px solid var(--border);padding-top:8px;">
+        <div class="sb-title">Routing</div>
+        <div class="mc-grid">
+          <button class="mc-btn" onclick="locateMe()"><svg width="12" height="15" viewBox="0 0 12 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1C3.2 1 1 3.2 1 6c0 4 5 8.5 5 8.5S11 10 11 6c0-2.8-2.2-5-5-5z"/><circle cx="6" cy="6" r="1.8"/></svg> Mein Ort</button>
+          <button class="mc-btn green" id="mob-btn-navi" onclick="if(sheetExpanded)toggleSheet();setTimeout(startNavi,350)"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="3" cy="9.5" r="2.2"/><circle cx="13" cy="9.5" r="2.2"/><path d="M3 9.5L6 3h6l1.5 6.5"/><path d="M6 3L8 9.5"/><line x1="4.5" y1="3" x2="8" y2="3"/></svg> Navigation</button>
+        </div>
+      </div>
+      <!-- Export & Import -->
+      <div style="margin-bottom:9px;border-top:1px solid var(--border);padding-top:8px;">
+        <div class="sb-title">Export &amp; Import</div>
+        <div class="tool-grid">
+          <button class="tool-btn" onclick="exportGPX()"><span class="ti"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6.5" y1="1" x2="6.5" y2="11"/><polyline points="3,8 6.5,12 10,8"/><line x1="1" y1="15" x2="12" y2="15"/></svg></span>GPX Export</button>
+          <button class="tool-btn" onclick="document.getElementById('gpx-file').click()"><span class="ti"><svg width="13" height="16" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6.5" y1="11" x2="6.5" y2="1"/><polyline points="3,4 6.5,0.5 10,4"/><line x1="1" y1="15" x2="12" y2="15"/></svg></span>GPX Import</button>
+          <button class="tool-btn" onclick="exportGMaps()"><span class="ti"><svg width="14" height="12" viewBox="0 0 14 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="1,1.5 5,3.5 9,1 13,2.5 13,10.5 9,9 5,11 1,9.5"/><line x1="5" y1="3.5" x2="5" y2="11"/><line x1="9" y1="1" x2="9" y2="9"/></svg></span>Google Maps</button>
+          <button class="tool-btn" onclick="shareRoute()"><span class="ti"><svg width="16" height="10" viewBox="0 0 16 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="5.5" y1="5" x2="10.5" y2="5"/><path d="M4 2H3a3 3 0 0 0 0 6h2"/><path d="M11 2h1a3 3 0 0 1 0 6h-1"/></svg></span>Teilen</button>
+        </div>
+      </div>
+      <!-- Karte -->
+      <div style="border-top:1px solid var(--border);padding-top:8px;">
+        <div class="sb-title">Karte</div>
+        <div class="tool-grid">
+          <button class="tool-btn" id="mob-t-km" onclick="toggleKmMarkers()"><span class="ti"><svg width="15" height="9" viewBox="0 0 15 9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="0.75" y="0.75" width="13.5" height="7.5" rx="1.5"/><line x1="3" y1="8.25" x2="3" y2="5"/><line x1="6" y1="8.25" x2="6" y2="3.5"/><line x1="9" y1="8.25" x2="9" y2="5"/><line x1="12" y1="8.25" x2="12" y2="3.5"/></svg></span>KM-Marker</button>
+          <button class="tool-btn" onclick="mapFitRoute()"><span class="ti"><svg width="15" height="15" viewBox="0 0 15 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7.5" cy="7.5" r="3"/><line x1="7.5" y1="1" x2="7.5" y2="4.5"/><line x1="7.5" y1="10.5" x2="7.5" y2="14"/><line x1="1" y1="7.5" x2="4.5" y2="7.5"/><line x1="10.5" y1="7.5" x2="14" y2="7.5"/></svg></span>Zentrieren</button>
+          <button class="tool-btn" id="mob-t-hide" onclick="toggleHide()"><span class="ti"><svg width="17" height="12" viewBox="0 0 17 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 6S4 1 8.5 1 16 6 16 6 13 11 8.5 11 1 6 1 6z"/><circle cx="8.5" cy="6" r="2.5"/></svg></span>Karte ein/aus</button>
+          <button class="tool-btn" id="mob-t-meteo" onclick="toggleMeteo()"><span class="ti"><svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor"><rect x="0.5" y="0.5" width="4" height="15" rx="1.5"/><rect x="7.5" y="0.5" width="4" height="15" rx="1.5"/></svg></span>Meteo Pause</button>
+        </div>
+      </div>
+      <!-- Optik -->
+      <div style="border-top:1px solid var(--border);padding-top:10px;margin-top:4px;">
+        <div class="sb-title"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><circle cx="7" cy="7" r="5.5"/><circle cx="5" cy="5.5" r="1.2" fill="var(--red)" stroke="none"/><circle cx="9" cy="5.5" r="1.2" fill="var(--accent)" stroke="none"/><circle cx="5" cy="8.5" r="1.2" fill="var(--green)" stroke="none"/><circle cx="9" cy="8.5" r="1.2" fill="var(--orange)" stroke="none"/></svg> Optik</div>
+        <div style="margin-bottom:11px;">
+          <button class="mc-btn optik-sky-btn" onclick="toggleSky()" style="width:100%;justify-content:center;"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="2.8"/><line x1="8" y1="1" x2="8" y2="3"/><line x1="8" y1="13" x2="8" y2="15"/><line x1="1" y1="8" x2="3" y2="8"/><line x1="13" y1="8" x2="15" y2="8"/><line x1="2.9" y1="2.9" x2="4.2" y2="4.2"/><line x1="11.8" y1="11.8" x2="13.1" y2="13.1"/><line x1="11.8" y1="2.9" x2="13.1" y2="4.2"/><line x1="2.9" y1="11.8" x2="4.2" y2="13.1"/></svg> Himmel ein/aus</button>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><circle cx="6" cy="6" r="2"/><line x1="6" y1="0.5" x2="6" y2="2"/><line x1="6" y1="10" x2="6" y2="11.5"/><line x1="0.5" y1="6" x2="2" y2="6"/><line x1="10" y1="6" x2="11.5" y2="6"/><line x1="1.7" y1="1.7" x2="2.7" y2="2.7"/><line x1="9.3" y1="9.3" x2="10.3" y2="10.3"/></svg> Helligkeit</span>
+            <span class="optik-brightness-val" style="font-family:var(--mono);font-size:11px;color:var(--accent);">100%</span>
+          </div>
+          <input type="range" class="optik-brightness-inp" min="30" max="200" value="100" oninput="setOptikBrightness(this.value)" style="width:100%;accent-color:var(--accent);height:4px;cursor:pointer;">
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" style="vertical-align:-2px"><circle cx="6" cy="6" r="5"/><path d="M6 1v10M6 1A5 5 0 0 1 6 11z" fill="currentColor" stroke="none"/><line x1="6" y1="1" x2="6" y2="11" stroke="currentColor" stroke-width="1"/></svg> Kontrast</span>
+            <span class="optik-contrast-val" style="font-family:var(--mono);font-size:11px;color:var(--accent);">100%</span>
+          </div>
+          <input type="range" class="optik-contrast-inp" min="50" max="200" value="100" oninput="setOptikContrast(this.value)" style="width:100%;accent-color:var(--accent);height:4px;cursor:pointer;">
+        </div>
+        <!-- ── GELÄNDEÜBERHÖHUNG ── -->
+        <div style="margin-top:11px;padding-top:10px;border-top:1px solid var(--border);">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;">
+            <span style="font-size:11px;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.08em;"><svg width="13" height="10" viewBox="0 0 13 10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" style="vertical-align:-1px"><polyline points="0,9 3,2 6,5.5 8.5,2.5 12,9"/></svg> Geländeüberhöhung</span>
+            <span class="sl-val" id="mob-exag-v">1.5×</span>
+          </div>
+          <div class="sl-row">
+            <span>1×</span>
+            <input type="range" min="1" max="5" step="0.1" value="1.5" oninput="setExag(this.value);document.getElementById('mob-exag-v').textContent=Number(this.value).toFixed(1)+'×'">
+            <span>5×</span>
+          </div>
+        </div>
+      </div>
+      <!-- ── KARTENEBENEN ── -->
+      <div style="border-top:1px solid var(--border);padding-top:9px;margin-top:9px;">
+        <div class="sb-title">Kartenebenen</div>
+        <div class="mc-grid">
+          <button class="mc-btn active" id="mob-btn-3d" onclick="toggle3D()"><svg width="14" height="11" viewBox="0 0 14 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polyline points="1,10 4,2 7,6 9,3 13,10"/></svg> 3D-Terrain</button>
+          <button class="mc-btn" id="mob-btn-sat" onclick="toggleSat()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="6" r="2"/><line x1="2.5" y1="11.5" x2="6" y2="8"/><line x1="10" y1="4" x2="12" y2="2"/><line x1="2" y1="5.5" x2="4" y2="3.5"/><line x1="9.5" y1="1.5" x2="11.5" y2="1.5"/><line x1="10.5" y1="0.5" x2="10.5" y2="2.5"/></svg> Satellit</button>
+          <button class="mc-btn" id="mob-btn-mesh" onclick="toggleMesh()"><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><polygon points="7,1 12.2,4 12.2,10 7,13 1.8,10 1.8,4"/></svg> Mesh</button>
+          <button class="mc-btn active" id="mob-btn-wp-vis" onclick="toggleGlobalWps()"><svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M1 6S3.8 1 8 1s7 5 7 5-2.8 5-7 5-7-5-7-5z"/><circle cx="8" cy="6" r="2"/></svg> Wegpunkte</button>
+        </div>
+      </div>
+      <!-- ── POWER SAVE NAVI ── -->
+      <div style="margin-top:9px;padding:11px 12px;background:rgba(0,230,118,.028);border:1px solid rgba(0,230,118,.2);border-radius:var(--r-md);">
+        <div class="ps-master-row" style="padding-bottom:9px;margin-bottom:9px;">
+          <div>
+            <div class="ps-master-lbl"><svg width="18" height="11" viewBox="0 0 18 11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" style="vertical-align:-2px"><rect x="0.75" y="0.75" width="13.5" height="9.5" rx="1.5"/><line x1="15.5" y1="3.5" x2="15.5" y2="7.5" stroke-width="2.5"/><rect x="2.5" y="2.5" width="7" height="6" rx="0.5" fill="currentColor" stroke="none"/></svg> Stromspar-Navigation</div>
+            <div class="ps-master-sub">Aktiv nur während der Live-Navigation</div>
+          </div>
+          <label class="ts" style="flex-shrink:0;"><input type="checkbox" id="ps-master-mob" checked onchange="togglePsMaster(this.checked)"><div class="ts-sl" style="background:rgba(0,230,118,.22);"></div></label>
+        </div>
+        <div class="ps-opts on" id="ps-opts-mob">
+          <div class="ps-opt-row" onclick="togglePs('gps')"><div class="ps-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2.5 8A5.5 5.5 0 0 1 8 2.5"/><path d="M13.5 8A5.5 5.5 0 0 1 8 13.5"/><path d="M4.5 8A3.5 3.5 0 0 1 8 4.5"/><path d="M11.5 8A3.5 3.5 0 0 1 8 11.5"/><circle cx="8" cy="8" r="1.5" fill="currentColor" stroke="none"/></svg></div><div class="ps-info"><div class="ps-name">GPS-Intervall</div><div class="ps-desc">Update nur alle 5 Sek. / 10 Meter</div></div><div class="ps-badge on" id="ps-gps-mob">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('display')"><div class="ps-ico"><svg width="16" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1" y="1" width="14" height="9" rx="1.5"/><line x1="5" y1="13" x2="11" y2="13"/><line x1="8" y1="10" x2="8" y2="13"/></svg></div><div class="ps-info"><div class="ps-name">Bildschirm 1–2 Hz</div><div class="ps-desc">Karten-Refresh gedrosselt</div></div><div class="ps-badge on" id="ps-display-mob">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('cache')"><div class="ps-ico"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4.5l7-3.5 7 3.5v7l-7 3.5-7-3.5z"/><line x1="1" y1="4.5" x2="8" y2="8"/><line x1="15" y1="4.5" x2="8" y2="8"/><line x1="8" y1="8" x2="8" y2="15.5"/></svg></div><div class="ps-info"><div class="ps-name">Routen-Cache</div><div class="ps-desc">Kacheln vorab laden &amp; speichern</div></div><div class="ps-badge on" id="ps-cache-mob">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('darkhud')"><div class="ps-ico"><svg width="14" height="16" viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 8A6 6 0 1 1 5 1a4.5 4.5 0 1 0 7 7z" fill="currentColor" stroke="currentColor"/></svg></div><div class="ps-info"><div class="ps-name">Minimales HUD</div><div class="ps-desc">Backdrop-Blur &amp; Glow deaktiviert</div></div><div class="ps-badge on" id="ps-darkhud-mob">AN</div></div>
+          <div class="ps-opt-row" onclick="togglePs('noanim')"><div class="ps-ico"><svg width="14" height="17" viewBox="0 0 14 17" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 9V2.5a1.2 1.2 0 0 1 2.4 0V7m0-1V2a1.2 1.2 0 0 1 2.4 0v5m0-1V3.5a1.2 1.2 0 0 1 2.4 0v5C12.2 12 10 15.5 7 15.5S1.8 12 1.8 9V7a1.2 1.2 0 0 1 2.4 0v2"/></svg></div><div class="ps-info"><div class="ps-name">Animationen aus</div><div class="ps-desc">Kamera-Übergänge minimal</div></div><div class="ps-badge on" id="ps-noanim-mob">AN</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── PROFIL PANE ── -->
+    <div id="st-profil" class="sh-pane">
+      <!-- Dynamisch durch Appwrite-Auth befüllt -->
+    </div>
+
+  </div>
+</div>
+
+<input type="file" id="gpx-file" accept=".gpx" style="display:none" onchange="importGPX(this)">
+<div id="toast"></div>
+
+<!-- ── NAVIGATION OVERLAY ─────────────────────── -->
+<div id="navi-overlay">
+  <!-- TOP HUD -->
+  <div id="navi-top">
+    <div id="navi-hud-bar">
+      <div class="navi-metric">
+        <div class="navi-big" style="font-size:28px;" id="navi-remain">—</div>
+        <div class="navi-lbl">km übrig</div>
+      </div>
+      <div class="navi-vsep"></div>
+      <div class="navi-metric">
+        <div class="navi-big green" style="font-size:28px;" id="navi-ridden">0.0</div>
+        <div class="navi-lbl">km gefahren</div>
+      </div>
+      <div class="navi-vsep"></div>
+      <div class="navi-metric">
+        <div class="navi-big" style="font-size:32px;color:#fff;" id="navi-speed">—</div>
+        <div class="navi-lbl">km/h</div>
+      </div>
+      <div class="navi-vsep"></div>
+      <div class="navi-metric">
+        <div class="navi-big" style="color:var(--red);font-size:24px;" id="navi-climb">0</div>
+        <div class="navi-lbl">hm ↑</div>
+      </div>
+      <div class="navi-vsep"></div>
+      <div class="navi-metric">
+        <div class="navi-big" style="color:var(--orange);font-size:22px;" id="navi-cal-hud">0</div>
+        <div class="navi-lbl">kcal</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ZOOM BUTTONS (rechts, mittig) -->
+  <div id="navi-zoom">
+    <button class="navi-zbtn" ontouchstart="naviZoom(1)" onclick="naviZoom(1)">＋</button>
+    <button class="navi-zbtn" ontouchstart="naviZoom(-1)" onclick="naviZoom(-1)">－</button>
+  </div>
+
+  <!-- SPEED BUBBLE — jetzt Fahrzeit-Anzeige -->
+  <div id="navi-speed-bubble">
+    <div class="navi-elapsed" id="navi-elapsed">0:00</div>
+  </div>
+
+  <!-- BOTTOM: floating stop (right) + view toggle (left) -->
+  <div id="navi-bottom">
+    <button id="navi-view-fab" onclick="cycleNaviViewFab()"><svg width="16" height="13" viewBox="0 0 16 13" fill="none" xmlns="http://www.w3.org/2000/svg"><line x1="1.5" y1="12" x2="6.5" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="5.5" y1="12" x2="10.5" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="9.5" y1="12" x2="14.5" y2="1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+    <button id="navi-stop-fab" onclick="stopNavi()">✕</button>
+  </div>
+</div>
+
+<!-- Floating Start NAVI button (shown after route exists) -->
+<button id="navi-start-fab" onclick="startNavi()">
+  <span class="fab-icon"><svg width="26" height="20" viewBox="0 0 26 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="4.5" cy="15.5" r="3.5"/><circle cx="21.5" cy="15.5" r="3.5"/><path d="M4.5 15.5L9 5.5h9l2.5 10"/><path d="M9 5.5L12.5 15.5"/><line x1="7" y1="5.5" x2="13" y2="5.5"/><circle cx="16" cy="3" r="2" fill="currentColor" stroke="none"/></svg></span>
+  <span class="fab-lbl">Navi</span>
+</button>
+
+<!-- Floating REC button (shown when no route planned) -->
+<button id="rec-start-fab" onclick="toggleRec()">
+  <span class="rec-icon"><span class="rec-dot"></span></span>
+  <span class="rec-lbl">REC</span>
+  <span class="rec-dist"></span>
+</button>
+
+<!-- ── NAVI ZIEL-MODAL ──────────────────────────── -->
+<div id="navi-finish-modal">
+  <div id="navi-finish-inner">
+    <canvas id="navi-finish-confetti" style="position:absolute;inset:0;pointer-events:none;width:100%;height:100%;border-radius:22px;"></canvas>
+    <!-- Auto-Save Countdown Bar -->
+    <div id="nf-autosave-bar">
+      <div id="nf-autosave-main">
+        <div id="nf-autosave-txt">⏱ Auto Speichern &amp; Schliessen in <span id="nf-countdown">20</span>s</div>
+        <div id="nf-autosave-prog"><div id="nf-autosave-fill"></div></div>
+      </div>
+      <button id="nf-autosave-x" onclick="cancelAutoSave()" title="Auto-Schliessen abbrechen">✕ Stop</button>
+    </div>
+    <div style="position:relative;z-index:1;">
+      <span class="nf-trophy"><svg width="48" height="48" viewBox="0 0 48 48" fill="none" stroke="#ffd600" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6h24v14a12 12 0 0 1-24 0z"/><path d="M12 8H7v6a5 5 0 0 0 5 5"/><path d="M36 8h5v6a5 5 0 0 1-5 5"/><line x1="24" y1="32" x2="24" y2="40"/><line x1="16" y1="42" x2="32" y2="42"/><path d="M18 42v-2h12v2" opacity=".5"/></svg></span>
+      <div class="nf-title">Ziel erreicht!</div>
+      <div class="nf-grid">
+        <div class="nf-cell"><div class="nf-v" style="color:var(--accent);" id="nf-dist">—</div><div class="nf-l">km gefahren</div></div>
+        <div class="nf-cell"><div class="nf-v" style="color:var(--green);" id="nf-time">—</div><div class="nf-l">Fahrzeit</div></div>
+        <div class="nf-cell"><div class="nf-v" style="color:var(--red);" id="nf-climb">—</div><div class="nf-l">hm ↑</div></div>
+        <div class="nf-cell"><div class="nf-v" style="color:var(--yellow);" id="nf-speed">—</div><div class="nf-l">Ø km/h</div></div>
+        <div class="nf-cell"><div class="nf-v" style="color:var(--orange);" id="nf-cal">—</div><div class="nf-l">kcal</div></div>
+        <div class="nf-cell"><div class="nf-v" style="color:var(--dim);" id="nf-wps">—</div><div class="nf-l">Wegpunkte</div></div>
+      </div>
+      <div class="nf-btns">
+        <button class="nf-btn share" onclick="naviFinishShare()"><svg width="14" height="14" viewBox="0 0 16 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12.5" cy="2.5" r="2"/><circle cx="3.5" cy="7" r="2"/><circle cx="12.5" cy="11.5" r="2"/><line x1="5.5" y1="7" x2="10.5" y2="3.5"/><line x1="5.5" y1="7" x2="10.5" y2="11"/></svg> Teilen &amp; Speichern</button>
+        <button class="nf-btn gpx" onclick="naviFinishGPX()"><svg width="13" height="15" viewBox="0 0 13 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><line x1="6.5" y1="1" x2="6.5" y2="11"/><polyline points="3,8 6.5,12 10,8"/><line x1="1" y1="15" x2="12" y2="15"/></svg> GPX exportieren</button>
+        <button class="nf-btn close" onclick="closeNaviFinish()">✕ Schließen</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── APPWRITE SDK ──────────────────────────── -->
+<script src="app.js" defer></script>
+<!-- ── STATE SDK ──────────────────────────── -->
+<script src="state.js" defer></script>
+
+
+
+</body>
+</html>
