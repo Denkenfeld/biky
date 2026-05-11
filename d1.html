@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GravelData · Deine Touren-Statistiken</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #040508;
+  --surface: #0b0e18;
+  --surface2: #111420;
+  --border: rgba(255,255,255,0.08);
+  --border2: rgba(255,255,255,0.13);
+  --glass: rgba(11,15,24,0.75);
+  --accent: #00d4ff;
+  --accent-dim: rgba(0,212,255,0.12);
+  --accent-glow: rgba(0,212,255,0.3);
+  --green: #00e676;
+  --green-dim: rgba(0,230,118,0.12);
+  --red: #ff3d6b;
+  --orange: #ff9100;
+  --yellow: #ffd600;
+  --text: #e4ecf4;
+  --dim: #8b9bb4;
+  --muted: #3d4d60;
+  --font: 'Barlow Condensed', sans-serif;
+  --font-body: 'Barlow', sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+  --r: 12px;
+  --r-sm: 7px;
+  --shadow: 0 8px 36px rgba(0,0,0,0.55);
+  --blur: blur(20px);
+}
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  letter-spacing: .02em;
+}
+
+body {
+  background-image:
+    radial-gradient(ellipse at 20% 10%, rgba(0,212,255,0.05) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 80%, rgba(0,230,118,0.04) 0%, transparent 50%);
+}
+
+/* ── LAYOUT ── */
+.app { display: flex; min-height: 100vh; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 220px;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0; left: 0; bottom: 0;
+  background: rgba(4,5,8,0.92);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  z-index: 10;
+  backdrop-filter: var(--blur);
+}
+
+.sidebar-logo {
+  padding: 22px 18px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.sidebar-logo .brand {
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: .18em;
+  color: var(--green);
+  text-shadow: 0 0 22px rgba(0,230,118,0.4);
+  display: block;
+}
+.sidebar-logo .brand em {
+  color: var(--text);
+  font-style: normal;
+  font-weight: 300;
+}
+.sidebar-logo .subbrand {
+  font-size: 9px;
+  letter-spacing: .22em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-top: 2px;
+  display: block;
+}
+
+.sidebar-nav {
+  flex: 1;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  cursor: pointer;
+  transition: .18s;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+.nav-item:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+.nav-item.active { background: var(--green-dim); border-color: rgba(0,230,118,0.25); color: var(--green); }
+.nav-item .nav-icon { font-size: 15px; flex-shrink: 0; }
+
+.sidebar-bottom {
+  padding: 14px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.user-card {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: rgba(0,230,118,0.06);
+  border: 1px solid rgba(0,230,118,0.18);
+}
+.user-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--green));
+  color: #000;
+  font-weight: 800;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content:center;
+  flex-shrink: 0;
+  letter-spacing: 0;
+}
+.user-name { font-size: 13px; font-weight: 700; color: var(--text); line-height: 1.2; }
+.user-email { font-size: 10px; color: var(--dim); }
+.logout-btn {
+  background: none; border: none; color: var(--muted);
+  font-family: var(--font); font-size: 10px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase;
+  cursor: pointer; margin-top: 8px; padding: 5px 10px;
+  border-radius: var(--r-sm); width: 100%;
+  border: 1px solid var(--border); transition: .18s;
+}
+.logout-btn:hover { color: var(--red); border-color: rgba(255,61,107,.4); }
+
+/* Link to GravelGuide */
+.nav-gravelguide {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--accent);
+  text-decoration: none;
+  border: 1px solid rgba(0,212,255,0.2);
+  background: var(--accent-dim);
+  transition: .18s;
+  margin-bottom: 8px;
+}
+.nav-gravelguide:hover { background: rgba(0,212,255,0.2); border-color: var(--accent); }
+
+/* ── MAIN ── */
+.main {
+  margin-left: 220px;
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(4,5,8,0.88);
+  backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.topbar-title {
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.topbar-year {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--muted);
+  letter-spacing: .08em;
+}
+.topbar-spacer { flex: 1; }
+
+.period-btns { display: flex; gap: 4px; }
+.period-btn {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 5px 11px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--dim);
+  cursor: pointer;
+  transition: .15s;
+}
+.period-btn:hover { color: var(--text); border-color: var(--border2); }
+.period-btn.active { background: var(--green-dim); border-color: rgba(0,230,118,0.35); color: var(--green); }
+
+.content { padding: 26px 28px 60px; display: flex; flex-direction: column; gap: 20px; }
+
+/* ── CARDS ── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px 20px;
+  box-shadow: var(--shadow);
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.card-sub {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── KPI STRIP ── */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.kpi-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 18px;
+  position: relative;
+  overflow: hidden;
+  transition: .2s;
+}
+.kpi-card:hover { border-color: var(--border2); }
+.kpi-card.highlight {
+  background: linear-gradient(135deg, rgba(0,230,118,0.07), var(--surface));
+  border-color: rgba(0,230,118,0.25);
+}
+.kpi-card.highlight::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: var(--green);
+  box-shadow: 0 0 10px rgba(0,230,118,0.6);
+}
+.kpi-icon { font-size: 18px; margin-bottom: 8px; }
+.kpi-label { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
+.kpi-value {
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+  letter-spacing: -.02em;
+}
+.kpi-card.highlight .kpi-value { color: var(--green); text-shadow: 0 0 20px rgba(0,230,118,0.3); }
+
+/* ── CHART ROW ── */
+.two-col { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+.three-col { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+
+.chart-wrap { position: relative; height: 200px; }
+.chart-wrap-sm { position: relative; height: 150px; }
+
+/* ── HEATMAP ── */
+.heatmap-outer {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+.heatmap-grid {
+  display: grid;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-flow: column;
+  gap: 3px;
+  width: max-content;
+}
+.heatmap-months {
+  display: flex;
+  gap: 0;
+  margin-bottom: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  color: var(--muted);
+  text-transform: uppercase;
+  width: max-content;
+}
+.hm-month { text-align: left; }
+
+.hm-cell {
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.04);
+  cursor: pointer;
+  transition: transform .1s;
+  position: relative;
+}
+.hm-cell:hover { transform: scale(1.3); z-index: 2; }
+.hm-cell[data-level="1"] { background: rgba(0,230,118,0.2); }
+.hm-cell[data-level="2"] { background: rgba(0,230,118,0.45); }
+.hm-cell[data-level="3"] { background: rgba(0,230,118,0.7); }
+.hm-cell[data-level="4"] { background: rgba(0,230,118,0.95); box-shadow: 0 0 5px rgba(0,230,118,0.4); }
+
+.heatmap-days {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+.heatmap-days span {
+  font-size: 8px;
+  color: var(--muted);
+  height: 12px;
+  display: flex;
+  align-items: center;
+  font-family: var(--mono);
+}
+
+.heatmap-container {
+  display: flex;
+  gap: 0;
+}
+
+.hm-legend {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: var(--muted);
+  margin-top: 10px;
+  letter-spacing: .06em;
+}
+.hm-legend-cells { display: flex; gap: 3px; }
+.hm-legend-cell { width: 12px; height: 12px; border-radius: 2px; }
+
+/* ── TOUR LIST ── */
+.tour-list { display: flex; flex-direction: column; gap: 6px; }
+.tour-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: rgba(255,255,255,0.03);
+  border: 1px solid transparent;
+  transition: .15s;
+  cursor: pointer;
+}
+.tour-row:hover { background: rgba(255,255,255,0.06); border-color: var(--border); }
+.tour-icon { font-size: 16px; flex-shrink: 0; }
+.tour-info { flex: 1; min-width: 0; }
+.tour-name { font-size: 13px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tour-date { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.tour-stats { display: flex; gap: 10px; flex-shrink: 0; }
+.tour-stat { text-align: right; }
+.tour-stat-v { font-family: var(--mono); font-size: 13px; font-weight: 600; color: var(--accent); }
+.tour-stat-l { font-size: 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+
+.empty-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  line-height: 2;
+}
+
+/* ── STAT MINI ROWS ── */
+.mini-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  font-size: 12px;
+}
+.mini-row:last-child { border-bottom: none; }
+.mini-row-label { color: var(--dim); }
+.mini-row-val { font-family: var(--mono); font-weight: 600; color: var(--text); }
+
+/* ── RING ── */
+.ring-wrap { display: flex; justify-content: center; align-items: center; position: relative; margin: 8px auto; }
+.ring-inner { position: absolute; text-align: center; }
+.ring-pct { font-family: var(--mono); font-size: 22px; font-weight: 700; color: var(--green); line-height: 1; }
+.ring-sub { font-size: 9px; color: var(--muted); margin-top: 3px; }
+
+/* ── AUTH ── */
+#auth-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.auth-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 32px 28px;
+  width: 100%;
+  max-width: 380px;
+  box-shadow: var(--shadow);
+}
+
+.auth-logo {
+  text-align: center;
+  margin-bottom: 26px;
+}
+.auth-logo .brand {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: .15em;
+  color: var(--green);
+  text-shadow: 0 0 24px rgba(0,230,118,0.5);
+}
+.auth-logo .brand em { color: var(--text); font-style: normal; font-weight: 300; }
+.auth-logo p { font-size: 11px; color: var(--muted); margin-top: 5px; letter-spacing: .06em; text-transform: uppercase; }
+
+.auth-tabs {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  margin-bottom: 18px;
+}
+.auth-tab {
+  flex: 1;
+  padding: 9px;
+  background: none;
+  border: none;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--dim);
+  transition: .15s;
+}
+.auth-tab.active { background: var(--green-dim); color: var(--green); }
+
+.auth-form { display: flex; flex-direction: column; gap: 9px; }
+.auth-input {
+  width: 100%;
+  background: rgba(0,0,0,0.45);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 13px;
+  border-radius: var(--r-sm);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  transition: .18s;
+  letter-spacing: .03em;
+}
+.auth-input:focus { border-color: var(--green); background: rgba(0,230,118,0.04); }
+.auth-input::placeholder { color: var(--muted); }
+
+.auth-btn {
+  width: 100%;
+  padding: 11px;
+  background: var(--green-dim);
+  border: 1px solid rgba(0,230,118,0.4);
+  color: var(--green);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: .18s;
+  margin-top: 4px;
+}
+.auth-btn:hover { background: rgba(0,230,118,0.22); border-color: var(--green); }
+.auth-btn:disabled { opacity: .5; cursor: default; }
+
+.auth-error {
+  background: rgba(255,61,107,0.12);
+  border: 1px solid rgba(255,61,107,0.3);
+  color: var(--red);
+  padding: 8px 12px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  display: none;
+}
+
+.auth-note {
+  margin-top: 16px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: center;
+  line-height: 1.7;
+  letter-spacing: .04em;
+}
+
+#app-screen { display: none; }
+
+/* ── TOAST ── */
+#toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%) translateY(16px);
+  background: rgba(0,230,118,0.12);
+  border: 1px solid var(--green);
+  border-radius: 30px;
+  padding: 8px 20px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  color: var(--green);
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0;
+  transition: .3s;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── CHIP / BADGE ── */
+.chip-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.chip {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  color: var(--dim);
+}
+.chip.green { background: rgba(0,230,118,0.1); border-color: rgba(0,230,118,0.3); color: var(--green); }
+.chip.accent { background: var(--accent-dim); border-color: rgba(0,212,255,0.3); color: var(--accent); }
+
+/* ── LOADING OVERLAY ── */
+#loading-overlay {
+  position: fixed; inset: 0; z-index: 9000;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px;
+  opacity: 0; pointer-events: none;
+  transition: opacity .3s;
+}
+#loading-overlay.show { opacity: 1; pointer-events: all; }
+.spin { width: 20px; height: 20px; border: 2px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .sidebar { display: none; }
+  .main { margin-left: 0; }
+  .two-col, .three-col { grid-template-columns: 1fr; }
+  .content { padding: 16px; }
+}
+
+@media (max-width: 600px) {
+  .kpi-grid { grid-template-columns: 1fr 1fr; }
+  .topbar { padding: 12px 16px; }
+  .topbar-title { font-size: 18px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── LOADING ── -->
+<div id="loading-overlay">
+  <div class="spin"></div>
+  <div class="loading-text">Verbinde mit GravelGuide…</div>
+</div>
+
+<!-- ── AUTH SCREEN ── -->
+<div id="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="brand">GRAVEL<em>DATA</em></div>
+      <p>Einloggen mit deinem GravelGuide Account</p>
+    </div>
+
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="showTab('login',this)">Einloggen</button>
+      <button class="auth-tab" onclick="showTab('reg',this)">Registrieren</button>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div id="form-login" class="auth-form">
+      <div id="auth-error" class="auth-error"></div>
+      <input class="auth-input" id="login-email" type="email" placeholder="E-Mail" autocomplete="email">
+      <input class="auth-input" id="login-pass" type="password" placeholder="Passwort" autocomplete="current-password">
+      <button class="auth-btn" id="login-btn" onclick="loginUser()">🔑 Einloggen</button>
+    </div>
+
+    <!-- REG FORM -->
+    <div id="form-reg" class="auth-form" style="display:none;">
+      <div id="reg-error" class="auth-error"></div>
+      <input class="auth-input" id="reg-name" type="text" placeholder="Name (optional)" autocomplete="name">
+      <input class="auth-input" id="reg-email" type="email" placeholder="E-Mail" autocomplete="email">
+      <input class="auth-input" id="reg-pass" type="password" placeholder="Passwort (min. 8 Zeichen)" autocomplete="new-password">
+      <button class="auth-btn" id="reg-btn" onclick="registerUser()">✨ Account erstellen</button>
+    </div>
+
+    <div class="auth-note">
+      Gleicher Account wie GravelGuide 3D · Routen werden synchronisiert
+    </div>
+  </div>
+</div>
+
+<!-- ── APP SCREEN ── -->
+<div id="app-screen">
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="brand">GRAVEL<em>DATA</em></span>
+        <span class="subbrand">Touren · Statistiken</span>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active">
+          <span class="nav-icon">📊</span> Dashboard
+        </div>
+        <div class="nav-item" style="opacity:.5;cursor:default;">
+          <span class="nav-icon">🗓</span> Kalender
+        </div>
+        <div class="nav-item" style="opacity:.5;cursor:default;">
+          <span class="nav-icon">🏆</span> Bestleistungen
+        </div>
+      </nav>
+      <div class="sidebar-bottom">
+        <a class="nav-gravelguide" href="72.html">
+          🗺 GravelGuide 3D
+        </a>
+        <div class="user-card">
+          <div class="user-avatar" id="sb-avatar">?</div>
+          <div>
+            <div class="user-name" id="sb-name">—</div>
+            <div class="user-email" id="sb-email">—</div>
+          </div>
+        </div>
+        <button class="logout-btn" onclick="logoutUser()">Ausloggen</button>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+      <header class="topbar">
+        <div>
+          <div class="topbar-title">Dashboard</div>
+          <div class="topbar-year" id="topbar-year">Saison 2025</div>
+        </div>
+        <div class="topbar-spacer"></div>
+        <div class="period-btns" id="period-btns">
+          <button class="period-btn" data-p="week" onclick="setPeriod('week',this)">7T</button>
+          <button class="period-btn" data-p="month" onclick="setPeriod('month',this)">Monat</button>
+          <button class="period-btn active" data-p="year" onclick="setPeriod('year',this)">Jahr</button>
+          <button class="period-btn" data-p="all" onclick="setPeriod('all',this)">Gesamt</button>
+        </div>
+      </header>
+
+      <div class="content">
+        <!-- KPI STRIP -->
+        <div class="kpi-grid" id="kpi-grid">
+          <div class="kpi-card highlight">
+            <div class="kpi-icon">🚴</div>
+            <div class="kpi-label">Distanz gesamt</div>
+            <div class="kpi-value" id="kpi-km">—</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">⛰</div>
+            <div class="kpi-label">Höhenmeter</div>
+            <div class="kpi-value" id="kpi-hm">—</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">🔥</div>
+            <div class="kpi-label">Kalorien</div>
+            <div class="kpi-value" id="kpi-cal">—</div>
+          </div>
+          <div class="kpi-card">
+            <div class="kpi-icon">📍</div>
+            <div class="kpi-label">Touren</div>
+            <div class="kpi-value" id="kpi-tours">—</div>
+          </div>
+        </div>
+
+        <!-- MAIN CHART + WEEKDAY -->
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Distanz-Verlauf</div>
+                <div class="card-sub" id="chart-period-label">Monatsvergleich</div>
+              </div>
+              <div style="display:flex;gap:5px;" id="metric-btns">
+                <button class="period-btn active" data-m="km" onclick="setMetric('km',this)" style="font-size:9px;padding:4px 9px;">km</button>
+                <button class="period-btn" data-m="hm" onclick="setMetric('hm',this)" style="font-size:9px;padding:4px 9px;">Hm</button>
+                <button class="period-btn" data-m="cal" onclick="setMetric('cal',this)" style="font-size:9px;padding:4px 9px;">kcal</button>
+              </div>
+            </div>
+            <div class="chart-wrap">
+              <canvas id="main-chart"></canvas>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title">Aktivität</div>
+                <div class="card-sub">Touren je Wochentag</div>
+              </div>
+            </div>
+            <div class="chart-wrap-sm">
+              <canvas id="weekday-chart"></canvas>
+            </div>
+            <div style="margin-top:12px;">
+              <div class="mini-row">
+                <span class="mini-row-label">Lieblingstag</span>
+                <span class="mini-row-val" id="fav-day" style="color:var(--green);">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Ø Touren / Woche</span>
+                <span class="mini-row-val" id="avg-per-week">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECONDARY -->
+        <div class="three-col">
+          <!-- Distanz-Verteilung -->
+          <div class="card">
+            <div class="card-title" style="margin-bottom:14px;">Touren-Längen</div>
+            <div class="chart-wrap-sm">
+              <canvas id="doughnut-chart"></canvas>
+            </div>
+            <div style="margin-top:12px;">
+              <div class="mini-row">
+                <span class="mini-row-label">Längste Tour</span>
+                <span class="mini-row-val" id="longest-tour">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Ø Distanz</span>
+                <span class="mini-row-val" id="avg-dist">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Streak / Bestwochen -->
+          <div class="card">
+            <div class="card-title" style="margin-bottom:14px;">Aktivitäts-Stats</div>
+            <div id="activity-stats">
+              <div class="mini-row">
+                <span class="mini-row-label">Aktive Wochen</span>
+                <span class="mini-row-val" id="active-weeks">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Aktivster Monat</span>
+                <span class="mini-row-val" id="best-month" style="color:var(--accent);">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Längster Streak</span>
+                <span class="mini-row-val" id="streak">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Ø Höhenmeter / Tour</span>
+                <span class="mini-row-val" id="avg-hm">—</span>
+              </div>
+              <div class="mini-row">
+                <span class="mini-row-label">Ø Kalorien / Tour</span>
+                <span class="mini-row-val" id="avg-cal">—</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Jahresziel-Ring -->
+          <div class="card">
+            <div class="card-header" style="margin-bottom:8px;">
+              <div>
+                <div class="card-title">Jahresziel</div>
+                <div class="card-sub" id="goal-sub">5.000 km bis Jahresende</div>
+              </div>
+            </div>
+            <div class="ring-wrap" style="width:110px;height:110px;">
+              <svg width="110" height="110" viewBox="0 0 110 110">
+                <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="9"/>
+                <circle cx="55" cy="55" r="46" fill="none" stroke="var(--green)" stroke-width="9"
+                  stroke-linecap="round"
+                  stroke-dasharray="289"
+                  id="goal-ring"
+                  stroke-dashoffset="289"
+                  transform="rotate(-90 55 55)"
+                  style="transition:stroke-dashoffset 1s ease;filter:drop-shadow(0 0 6px rgba(0,230,118,0.5));"/>
+              </svg>
+              <div class="ring-inner">
+                <div class="ring-pct" id="goal-pct">0%</div>
+                <div class="ring-sub" id="goal-reached">— km</div>
+              </div>
+            </div>
+            <div style="margin-top:10px;">
+              <div class="mini-row">
+                <span class="mini-row-label">Verbleibend</span>
+                <span class="mini-row-val" id="goal-remaining" style="color:var(--green);">—</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- JAHRESKALENDER HEATMAP -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Aktivitäts-Kalender <span id="heatmap-year">2025</span></div>
+              <div class="card-sub">Touren nach Häufigkeit</div>
+            </div>
+            <div class="hm-legend">
+              <span>Wenig</span>
+              <div class="hm-legend-cells">
+                <div class="hm-legend-cell" style="background:rgba(255,255,255,0.04);"></div>
+                <div class="hm-legend-cell" style="background:rgba(0,230,118,0.2);"></div>
+                <div class="hm-legend-cell" style="background:rgba(0,230,118,0.45);"></div>
+                <div class="hm-legend-cell" style="background:rgba(0,230,118,0.7);"></div>
+                <div class="hm-legend-cell" style="background:rgba(0,230,118,0.95);"></div>
+              </div>
+              <span>Viel</span>
+            </div>
+          </div>
+          <div id="heatmap-container"></div>
+          <div class="chip-row" id="heatmap-chips"></div>
+        </div>
+
+        <!-- LETZTE TOUREN -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">Letzte Touren</div>
+          </div>
+          <div class="tour-list" id="tour-list">
+            <div class="empty-state">Noch keine Touren gespeichert.<br>Starte eine Route im GravelGuide!</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- ── APPWRITE SDK + APP LOGIC ── -->
+<script type="module">
+import { Client, Account, Databases, ID, Query } from 'https://cdn.jsdelivr.net/npm/appwrite@16/dist/esm/sdk.js';
+
+// ── Appwrite Config (same as GravelGuide 3D) ──────────────
+const AW_ENDPOINT = 'https://cloud.appwrite.io/v1';
+const AW_PROJECT  = '69ff896300258f20e17a';
+const AW_DB       = '69ff8f4c003d6fd82f1e';
+const AW_COL      = 'routes';
+
+const client  = new Client().setEndpoint(AW_ENDPOINT).setProject(AW_PROJECT);
+const account = new Account(client);
+const db      = new Databases(client);
+
+let currentUser = null;
+let allRides    = [];
+let currentPeriod = 'year';
+let currentMetric = 'km';
+let mainChartInst = null;
+let weekdayChartInst = null;
+let doughnutChartInst = null;
+
+// ── UI Helpers ────────────────────────────────────────────
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2600);
+}
+
+function setLoading(on){
+  document.getElementById('loading-overlay').classList.toggle('show', on);
+}
+
+// ── Auth UI ───────────────────────────────────────────────
+window.showTab = function(tab, btn){
+  document.querySelectorAll('.auth-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('form-login').style.display = tab === 'login' ? '' : 'none';
+  document.getElementById('form-reg').style.display   = tab === 'reg'   ? '' : 'none';
+};
+
+window.loginUser = async function(){
+  const email = document.getElementById('login-email').value.trim();
+  const pass  = document.getElementById('login-pass').value;
+  const errEl = document.getElementById('auth-error');
+  errEl.style.display = 'none';
+  if(!email || !pass){ errEl.textContent='E-Mail und Passwort eingeben.'; errEl.style.display='block'; return; }
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true; btn.textContent = '⏳ Verbinde…';
+  try {
+    await account.createEmailPasswordSession(email, pass);
+    currentUser = await account.get();
+    await initDashboard();
+  } catch(e){
+    errEl.textContent = e.message || 'Login fehlgeschlagen';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = '🔑 Einloggen';
+  }
+};
+
+window.registerUser = async function(){
+  const name  = document.getElementById('reg-name').value.trim();
+  const email = document.getElementById('reg-email').value.trim();
+  const pass  = document.getElementById('reg-pass').value;
+  const errEl = document.getElementById('reg-error');
+  errEl.style.display = 'none';
+  if(!email || !pass){ errEl.textContent='E-Mail und Passwort eingeben.'; errEl.style.display='block'; return; }
+  if(pass.length < 8){ errEl.textContent='Passwort mind. 8 Zeichen.'; errEl.style.display='block'; return; }
+  const btn = document.getElementById('reg-btn');
+  btn.disabled = true; btn.textContent = '⏳ Erstelle Account…';
+  try {
+    await account.create(ID.unique(), email, pass, name || undefined);
+    await account.createEmailPasswordSession(email, pass);
+    currentUser = await account.get();
+    await initDashboard();
+  } catch(e){
+    errEl.textContent = e.message || 'Registrierung fehlgeschlagen';
+    errEl.style.display = 'block';
+    btn.disabled = false; btn.textContent = '✨ Account erstellen';
+  }
+};
+
+window.logoutUser = async function(){
+  try { await account.deleteSession('current'); } catch(e){}
+  currentUser = null; allRides = [];
+  document.getElementById('app-screen').style.display = 'none';
+  document.getElementById('auth-screen').style.display = 'flex';
+  showToast('Ausgeloggt');
+};
+
+// ── Init ─────────────────────────────────────────────────
+async function init(){
+  setLoading(true);
+  try {
+    currentUser = await account.get();
+    await initDashboard();
+  } catch(e){
+    // Not logged in
+    document.getElementById('auth-screen').style.display = 'flex';
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function initDashboard(){
+  document.getElementById('auth-screen').style.display = 'none';
+  document.getElementById('app-screen').style.display = 'block';
+
+  // Update sidebar user info
+  const name = currentUser.name || currentUser.email;
+  document.getElementById('sb-name').textContent = name;
+  document.getElementById('sb-email').textContent = currentUser.email;
+  document.getElementById('sb-avatar').textContent = name.slice(0,2).toUpperCase();
+
+  // Load cloud routes
+  await loadRides();
+  renderAll();
+}
+
+async function loadRides(){
+  try {
+    const res = await db.listDocuments(AW_DB, AW_COL, [
+      Query.equal('userId', currentUser.$id),
+      Query.orderDesc('$createdAt'),
+      Query.limit(200)
+    ]);
+    allRides = res.documents
+      .filter(d => d.routeName !== '__weight__' && (d.distance||0) > 0)
+      .map(d => ({
+        name:  d.routeName || 'Tour',
+        date:  d.date || d.$createdAt?.slice(0,10) || '',
+        km:    (d.distance||0) / 1000,
+        hm:    d.elevation || 0,
+        cal:   d.calories  || 0,
+        id:    d.$id
+      }));
+
+    // Also merge from localStorage (rides from navi finish saved locally)
+    try {
+      const local = JSON.parse(localStorage.getItem('vn_rides')||'[]');
+      local.forEach(lr => {
+        if(lr.date && !allRides.some(cr => cr.date===lr.date && Math.abs(cr.km - (lr.km||0)) < 0.5)){
+          allRides.push({
+            name: lr.name || `Tour ${lr.date}`,
+            date: lr.date,
+            km:   lr.km || 0,
+            hm:   lr.hm || 0,
+            cal:  lr.cal || 0,
+            id:   null
+          });
+        }
+      });
+    } catch(e){}
+
+    // Sort by date desc
+    allRides.sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  } catch(e){
+    console.warn('Rides load failed:', e);
+    // fallback to localStorage only
+    try {
+      const local = JSON.parse(localStorage.getItem('vn_rides')||'[]');
+      allRides = local.map(r => ({
+        name: r.name||`Tour ${r.date}`, date:r.date||'', km:r.km||0, hm:r.hm||0, cal:r.cal||0, id:null
+      }));
+    } catch(e2){}
+  }
+}
+
+// ── Filter rides by period ────────────────────────────────
+function filteredRides(){
+  const now = new Date();
+  return allRides.filter(r => {
+    if(!r.date) return currentPeriod === 'all';
+    const d = new Date(r.date);
+    if(currentPeriod === 'week'){
+      const weekAgo = new Date(now); weekAgo.setDate(now.getDate()-6);
+      return d >= weekAgo;
+    }
+    if(currentPeriod === 'month'){
+      return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+    }
+    if(currentPeriod === 'year'){
+      return d.getFullYear()===now.getFullYear();
+    }
+    return true;
+  });
+}
+
+// ── RENDER ALL ────────────────────────────────────────────
+function renderAll(){
+  const rides = filteredRides();
+  renderKPIs(rides);
+  renderMainChart(rides);
+  renderWeekdayChart(rides);
+  renderDoughnut(rides);
+  renderActivityStats(rides);
+  renderGoalRing(rides);
+  renderHeatmap();
+  renderTourList();
+}
+
+window.setPeriod = function(p, btn){
+  currentPeriod = p;
+  document.querySelectorAll('#period-btns .period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const labels = { week:'Letzte 7 Tage', month:'Dieser Monat', year:'Dieses Jahr', all:'Gesamtzeitraum' };
+  document.getElementById('chart-period-label').textContent = labels[p] || '';
+  renderAll();
+};
+
+window.setMetric = function(m, btn){
+  currentMetric = m;
+  document.querySelectorAll('#metric-btns .period-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  renderMainChart(filteredRides());
+};
+
+// ── KPIs ──────────────────────────────────────────────────
+function renderKPIs(rides){
+  const totKm  = rides.reduce((s,r)=>s+r.km,0);
+  const totHm  = rides.reduce((s,r)=>s+r.hm,0);
+  const totCal = rides.reduce((s,r)=>s+r.cal,0);
+  document.getElementById('kpi-km').textContent   = totKm > 0  ? totKm.toFixed(0)+' km' : '—';
+  document.getElementById('kpi-hm').textContent   = totHm > 0  ? totHm.toFixed(0)+' m'  : '—';
+  document.getElementById('kpi-cal').textContent  = totCal > 0 ? totCal.toFixed(0)       : '—';
+  document.getElementById('kpi-tours').textContent = rides.length || '—';
+}
+
+// ── MAIN BAR CHART ────────────────────────────────────────
+function renderMainChart(rides){
+  const canvas = document.getElementById('main-chart');
+  const ctx = canvas.getContext('2d');
+
+  const now = new Date();
+  let labels = [], dataMap = {};
+
+  if(currentPeriod === 'week'){
+    const days = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+    for(let i=6;i>=0;i--){
+      const d = new Date(now); d.setDate(now.getDate()-i);
+      const key = d.toISOString().slice(0,10);
+      labels.push(days[d.getDay()]);
+      dataMap[key] = 0;
+    }
+  } else if(currentPeriod === 'month'){
+    const dInM = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+    for(let i=1;i<=dInM;i++){
+      const d = new Date(now.getFullYear(), now.getMonth(), i);
+      const key = d.toISOString().slice(0,10);
+      labels.push(i%5===1 ? String(i) : '');
+      dataMap[key] = 0;
+    }
+  } else if(currentPeriod === 'year'){
+    const months = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+    for(let m=0;m<12;m++){
+      labels.push(months[m]);
+      dataMap[`${now.getFullYear()}-${String(m+1).padStart(2,'0')}`] = 0;
+    }
+  } else {
+    const monthMap = {};
+    rides.forEach(r => {
+      if(!r.date) return;
+      const k = r.date.slice(0,7);
+      monthMap[k] = (monthMap[k]||0);
+    });
+    const sortedKeys = [...new Set(rides.map(r=>r.date?.slice(0,7)).filter(Boolean))].sort();
+    sortedKeys.forEach(k => {
+      const [y,m] = k.split('-');
+      labels.push(`${m}/${y.slice(2)}`);
+      dataMap[k] = 0;
+    });
+  }
+
+  const keys = Object.keys(dataMap);
+  rides.forEach(r => {
+    if(!r.date) return;
+    const key = currentPeriod === 'year' ? r.date.slice(0,7) : (currentPeriod==='all' ? r.date.slice(0,7) : r.date);
+    const hit = keys.find(k => key.startsWith(k));
+    if(hit != null) dataMap[hit] += currentMetric==='km' ? r.km : currentMetric==='hm' ? r.hm : r.cal;
+  });
+  const dataPoints = Object.values(dataMap);
+
+  const metricColor = {km:'rgba(0,212,255,', hm:'rgba(255,61,107,', cal:'rgba(255,145,0,'};
+  const col = metricColor[currentMetric]||metricColor.km;
+  const grad = ctx.createLinearGradient(0,0,0,200);
+  grad.addColorStop(0, col+'0.35)');
+  grad.addColorStop(1, col+'0)');
+
+  const data = {
+    labels,
+    datasets:[{
+      data: dataPoints,
+      backgroundColor: dataPoints.map(v => v > 0 ? grad : 'rgba(255,255,255,0.03)'),
+      borderColor: dataPoints.map(v => v > 0 ? col+'1)' : 'rgba(255,255,255,0.07)'),
+      borderWidth: 1.5,
+      borderRadius: 4,
+      borderSkipped: false
+    }]
+  };
+
+  const labelStr = currentMetric==='km'?'km':currentMetric==='hm'?'m':'kcal';
+  const opts = {
+    responsive:true, maintainAspectRatio:false, animation:{duration:300},
+    plugins:{legend:{display:false}, tooltip:{
+      callbacks:{label:c=>`${c.raw.toFixed(currentMetric==='km'?1:0)} ${labelStr}`},
+      backgroundColor:'rgba(4,5,8,0.96)', borderColor:'rgba(255,255,255,0.12)', borderWidth:1,
+      titleFont:{family:'JetBrains Mono'}, bodyFont:{family:'JetBrains Mono'}
+    }},
+    scales:{
+      x:{grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'rgba(139,155,180,.7)', font:{size:9, family:'JetBrains Mono'}}},
+      y:{grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'rgba(139,155,180,.7)', font:{size:9, family:'JetBrains Mono'}, maxTicksLimit:5}, beginAtZero:true}
+    }
+  };
+
+  if(mainChartInst){ mainChartInst.destroy(); }
+  mainChartInst = new Chart(ctx, {type:'bar', data, options:opts});
+}
+
+// ── WEEKDAY CHART ─────────────────────────────────────────
+function renderWeekdayChart(rides){
+  const dayNames = ['So','Mo','Di','Mi','Do','Fr','Sa'];
+  const counts = [0,0,0,0,0,0,0];
+  rides.forEach(r => {
+    if(!r.date) return;
+    const d = new Date(r.date);
+    counts[d.getDay()]++;
+  });
+  const maxDay = counts.indexOf(Math.max(...counts));
+  document.getElementById('fav-day').textContent = counts.some(c=>c>0) ? dayNames[maxDay] : '—';
+
+  // Weeks in period
+  const weeksMap = new Set();
+  rides.forEach(r => {
+    if(!r.date) return;
+    const d = new Date(r.date);
+    const week = `${d.getFullYear()}-W${Math.ceil((d.getDate()+new Date(d.getFullYear(),d.getMonth(),1).getDay())/7)}`;
+    weeksMap.add(week);
+  });
+  const avgPW = weeksMap.size > 0 ? (rides.length / Math.max(weeksMap.size, 1)).toFixed(1) : '—';
+  document.getElementById('avg-per-week').textContent = avgPW;
+
+  const canvas = document.getElementById('weekday-chart');
+  if(weekdayChartInst){ weekdayChartInst.destroy(); }
+  weekdayChartInst = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: dayNames,
+      datasets: [{
+        data: counts,
+        backgroundColor: counts.map((c,i) => i===maxDay ? 'rgba(0,230,118,0.7)' : 'rgba(0,212,255,0.25)'),
+        borderColor: counts.map((c,i) => i===maxDay ? 'rgba(0,230,118,1)' : 'rgba(0,212,255,0.5)'),
+        borderWidth: 1.5, borderRadius: 4, borderSkipped: false
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:{duration:200},
+      plugins:{legend:{display:false}, tooltip:{
+        callbacks:{label:c=>`${c.raw} Touren`},
+        backgroundColor:'rgba(4,5,8,0.96)', borderColor:'rgba(255,255,255,0.12)', borderWidth:1,
+        bodyFont:{family:'JetBrains Mono'}
+      }},
+      scales:{
+        x:{grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'rgba(139,155,180,.7)', font:{size:9}}},
+        y:{display:false, beginAtZero:true}
+      }
+    }
+  });
+}
+
+// ── DOUGHNUT CHART ────────────────────────────────────────
+function renderDoughnut(rides){
+  const short = rides.filter(r=>r.km < 30).length;
+  const mid   = rides.filter(r=>r.km >= 30 && r.km <= 70).length;
+  const long  = rides.filter(r=>r.km > 70).length;
+
+  const longest = rides.reduce((m,r)=>Math.max(m,r.km),0);
+  const avgDist = rides.length ? (rides.reduce((s,r)=>s+r.km,0)/rides.length) : 0;
+  document.getElementById('longest-tour').textContent = longest > 0 ? longest.toFixed(0)+' km' : '—';
+  document.getElementById('avg-dist').textContent = avgDist > 0 ? avgDist.toFixed(0)+' km' : '—';
+
+  const canvas = document.getElementById('doughnut-chart');
+  if(doughnutChartInst){ doughnutChartInst.destroy(); }
+  if(!rides.length || (!short && !mid && !long)){
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    return;
+  }
+  doughnutChartInst = new Chart(canvas.getContext('2d'), {
+    type: 'doughnut',
+    data:{
+      labels:['<30km','30-70km','>70km'],
+      datasets:[{
+        data:[short,mid,long],
+        backgroundColor:['rgba(0,230,118,0.75)','rgba(0,212,255,0.7)','rgba(255,145,0,0.75)'],
+        borderColor:['rgba(0,230,118,1)','rgba(0,212,255,1)','rgba(255,145,0,1)'],
+        borderWidth:1.5, hoverOffset:6
+      }]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false, cutout:'68%',
+      plugins:{
+        legend:{display:false},
+        tooltip:{ callbacks:{label:c=>`${c.label}: ${c.raw} Touren`},
+          backgroundColor:'rgba(4,5,8,0.96)', borderColor:'rgba(255,255,255,0.12)', borderWidth:1,
+          bodyFont:{family:'JetBrains Mono'}
+        }
+      }
+    }
+  });
+}
+
+// ── ACTIVITY STATS ────────────────────────────────────────
+function renderActivityStats(rides){
+  // Active weeks
+  const weekSet = new Set();
+  const monthCounts = {};
+  const monthNames = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  rides.forEach(r => {
+    if(!r.date) return;
+    const d = new Date(r.date);
+    const wKey = `${d.getFullYear()}-${Math.ceil(d.getDate()/7)}`;
+    weekSet.add(wKey);
+    const mKey = `${d.getFullYear()}-${d.getMonth()}`;
+    monthCounts[mKey] = (monthCounts[mKey]||0)+1;
+  });
+
+  document.getElementById('active-weeks').textContent = weekSet.size || '—';
+
+  const bestMonthKey = Object.entries(monthCounts).sort((a,b)=>b[1]-a[1])[0];
+  if(bestMonthKey){
+    const [y, m] = bestMonthKey[0].split('-');
+    document.getElementById('best-month').textContent = `${monthNames[parseInt(m)]} ${y}`;
+  } else {
+    document.getElementById('best-month').textContent = '—';
+  }
+
+  // Streak (consecutive days with activity)
+  const dateSet = new Set(rides.map(r=>r.date).filter(Boolean));
+  let streak = 0, maxStreak = 0, cur = 0;
+  const today = new Date();
+  for(let i=0;i<365;i++){
+    const d = new Date(today); d.setDate(today.getDate()-i);
+    const key = d.toISOString().slice(0,10);
+    if(dateSet.has(key)){ cur++; maxStreak = Math.max(maxStreak, cur); }
+    else { if(i > 0) cur = 0; }
+  }
+  document.getElementById('streak').textContent = maxStreak > 0 ? `${maxStreak} Tage` : '—';
+
+  const avgHm  = rides.length ? Math.round(rides.reduce((s,r)=>s+r.hm,0)/rides.length) : 0;
+  const avgCal = rides.length ? Math.round(rides.reduce((s,r)=>s+r.cal,0)/rides.length) : 0;
+  document.getElementById('avg-hm').textContent  = avgHm  > 0 ? `${avgHm} m`    : '—';
+  document.getElementById('avg-cal').textContent = avgCal > 0 ? `${avgCal} kcal` : '—';
+}
+
+// ── GOAL RING ─────────────────────────────────────────────
+function renderGoalRing(rides){
+  const yearRides = allRides.filter(r => {
+    if(!r.date) return false;
+    return new Date(r.date).getFullYear() === new Date().getFullYear();
+  });
+  const totalKm = yearRides.reduce((s,r)=>s+r.km,0);
+  const goal = 5000;
+  const pct = Math.min(totalKm / goal, 1);
+  const circumference = 289;
+  const offset = circumference * (1 - pct);
+
+  document.getElementById('goal-ring').style.strokeDashoffset = offset;
+  document.getElementById('goal-pct').textContent = (pct*100).toFixed(0) + '%';
+  document.getElementById('goal-reached').textContent = totalKm.toFixed(0) + ' km';
+  document.getElementById('goal-remaining').textContent = Math.max(0, goal - totalKm).toFixed(0) + ' km';
+  document.getElementById('goal-sub').textContent = `${goal.toLocaleString('de-DE')} km Ziel`;
+}
+
+// ── HEATMAP ───────────────────────────────────────────────
+function renderHeatmap(){
+  const year = new Date().getFullYear();
+  document.getElementById('heatmap-year').textContent = year;
+
+  // Count rides per date for this year
+  const dateCounts = {};
+  allRides.forEach(r => {
+    if(!r.date) return;
+    if(parseInt(r.date.slice(0,4)) !== year) return;
+    dateCounts[r.date] = (dateCounts[r.date]||0) + 1;
+  });
+
+  const maxCount = Math.max(...Object.values(dateCounts), 1);
+
+  // Build grid: starts from Mon Jan 1 of the year
+  const startDate = new Date(year, 0, 1);
+  // Adjust to start on Monday
+  const startDay = startDate.getDay(); // 0=Sun
+  const offset = startDay === 0 ? 6 : startDay - 1;
+
+  const totalDays = (new Date(year, 11, 31) - startDate) / 86400000 + 1;
+  const totalCells = Math.ceil((totalDays + offset) / 7) * 7;
+
+  // Build months header
+  const monthNames = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+  const monthPositions = [];
+  let currentMonth = -1;
+  for(let i=0;i<totalCells;i++){
+    const dayOffset = i - offset;
+    if(dayOffset < 0 || dayOffset >= totalDays) continue;
+    const date = new Date(year, 0, 1 + dayOffset);
+    if(date.getMonth() !== currentMonth){
+      currentMonth = date.getMonth();
+      const col = Math.floor(i/7);
+      monthPositions.push({col, name: monthNames[currentMonth]});
+    }
+  }
+
+  const totalCols = totalCells / 7;
+  const cellW = 12 + 3; // width + gap
+
+  const container = document.getElementById('heatmap-container');
+  container.innerHTML = '';
+
+  // Months row
+  const monthsRow = document.createElement('div');
+  monthsRow.className = 'heatmap-months';
+  monthsRow.style.paddingLeft = '22px';
+  let prevCol = 0;
+  monthPositions.forEach(mp => {
+    const spacer = document.createElement('div');
+    spacer.style.width = `${(mp.col - prevCol) * cellW}px`;
+    spacer.style.flexShrink = '0';
+    monthsRow.appendChild(spacer);
+    const lbl = document.createElement('div');
+    lbl.className = 'hm-month';
+    lbl.textContent = mp.name;
+    lbl.style.flexShrink = '0';
+    monthsRow.appendChild(lbl);
+    prevCol = mp.col + Math.ceil(mp.name.length * 7 / cellW);
+  });
+  container.appendChild(monthsRow);
+
+  // Heatmap inner
+  const inner = document.createElement('div');
+  inner.style.display = 'flex';
+  inner.style.gap = '0';
+
+  // Day labels
+  const dayLabels = document.createElement('div');
+  dayLabels.className = 'heatmap-days';
+  ['Mo','','Mi','','Fr','','So'].forEach(d => {
+    const s = document.createElement('span');
+    s.textContent = d;
+    dayLabels.appendChild(s);
+  });
+  inner.appendChild(dayLabels);
+
+  // Outer scrollable
+  const outerDiv = document.createElement('div');
+  outerDiv.className = 'heatmap-outer';
+
+  const grid = document.createElement('div');
+  grid.className = 'heatmap-grid';
+
+  for(let i=0;i<totalCells;i++){
+    const cell = document.createElement('div');
+    cell.className = 'hm-cell';
+    const dayOffset = i - offset;
+    if(dayOffset < 0 || dayOffset >= totalDays){
+      cell.style.opacity = '0';
+      cell.style.pointerEvents = 'none';
+    } else {
+      const date = new Date(year, 0, 1 + dayOffset);
+      const dateStr = date.toISOString().slice(0,10);
+      const count = dateCounts[dateStr] || 0;
+      if(count > 0){
+        const level = Math.ceil((count / maxCount) * 4);
+        cell.setAttribute('data-level', level);
+        cell.title = `${dateStr}: ${count} Tour${count>1?'en':''}`;
+      } else {
+        cell.title = dateStr;
+      }
+    }
+    grid.appendChild(cell);
+  }
+
+  outerDiv.appendChild(grid);
+  inner.appendChild(outerDiv);
+  container.appendChild(inner);
+
+  // Chips
+  const totalTours = allRides.filter(r=>r.date&&parseInt(r.date.slice(0,4))===year).length;
+  document.getElementById('heatmap-chips').innerHTML = `
+    <span class="chip green">📍 ${totalTours} Touren ${year}</span>
+    <span class="chip accent">📅 ${Object.keys(dateCounts).length} aktive Tage</span>
+  `;
+}
+
+// ── TOUR LIST ─────────────────────────────────────────────
+function renderTourList(){
+  const list = document.getElementById('tour-list');
+  const recent = allRides.slice(0, 10);
+  if(!recent.length){
+    list.innerHTML = '<div class="empty-state">Noch keine Touren gespeichert.<br>Starte eine Route im GravelGuide!</div>';
+    return;
+  }
+  list.innerHTML = recent.map(r => `
+    <div class="tour-row">
+      <div class="tour-icon">🗺</div>
+      <div class="tour-info">
+        <div class="tour-name">${r.name}</div>
+        <div class="tour-date">${r.date||''}</div>
+      </div>
+      <div class="tour-stats">
+        <div class="tour-stat">
+          <div class="tour-stat-v">${r.km.toFixed(1)}</div>
+          <div class="tour-stat-l">km</div>
+        </div>
+        ${r.hm > 0 ? `<div class="tour-stat">
+          <div class="tour-stat-v" style="color:var(--red);">${r.hm}</div>
+          <div class="tour-stat-l">hm</div>
+        </div>` : ''}
+        ${r.cal > 0 ? `<div class="tour-stat">
+          <div class="tour-stat-v" style="color:var(--orange);">${r.cal}</div>
+          <div class="tour-stat-l">kcal</div>
+        </div>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+// Start
+init();
+</script>
+</body>
+</html>
