@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CycleQuest 3D – Voxel Edition</title>
+    <script src="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.x/dist/maplibre-gl.css" rel="stylesheet"/>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root { --gold:#ffd700; --cyan:#00fbff; }
+        * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+        body { background:#0a0a14; color:white; overflow:hidden; font-family:'Segoe UI',system-ui,sans-serif; }
+
+        #map { position:absolute; inset:0; }
+        #voxel-grid {
+            position:absolute; inset:0; z-index:1; pointer-events:none;
+            background-image:
+                linear-gradient(rgba(0,0,0,0.10) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0,0,0,0.10) 1px, transparent 1px);
+            background-size:18px 18px;
+        }
+
+        #ui-overlay { position:absolute; top:15px; left:15px; right:15px; z-index:10; pointer-events:none; }
+        .stats-card {
+            background:rgba(0,0,0,0.78); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,0.28); border-radius:18px;
+            padding:14px 18px; pointer-events:auto;
+            display:flex; justify-content:space-between; align-items:center;
+            box-shadow:0 4px 24px rgba(0,0,0,.6);
+        }
+        .coin-ctr  { font-size:2rem; color:var(--gold); font-weight:900; line-height:1; }
+        .lvl-badge { background:var(--gold); color:#000; padding:3px 10px; border-radius:8px; font-size:.78rem; font-weight:800; margin-left:8px; }
+        #status-text { font-size:.68rem; color:#888; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:3px; }
+
+        #controls {
+            position:absolute; bottom:40px; left:50%; transform:translateX(-50%);
+            display:flex; gap:12px; z-index:10; pointer-events:auto; white-space:nowrap;
+        }
+        .btn {
+            border:none; padding:18px 34px; border-radius:50px;
+            font-weight:900; font-size:1.2rem; cursor:pointer;
+            text-transform:uppercase; letter-spacing:1px; transition:all .15s;
+        }
+        .btn:active { transform:scale(0.90); }
+        .btn:disabled { background:#333!important; color:#666!important; cursor:not-allowed; box-shadow:none!important; }
+        #quest-btn { background:var(--gold); color:#000; box-shadow:0 4px 22px rgba(255,215,0,.35); }
+        #nav-btn   { background:transparent; color:var(--cyan); border:2px solid var(--cyan); }
+        #nav-btn.active { background:var(--cyan); color:#000; }
+
+        #difficulty-bar {
+            position:absolute; bottom:116px; left:50%; transform:translateX(-50%);
+            width:min(340px,90vw); z-index:10;
+            background:rgba(0,0,0,0.78); backdrop-filter:blur(14px);
+            border:1px solid rgba(255,215,0,.22); border-radius:18px;
+            padding:12px 18px 10px;
+        }
+        #diff-labels { display:flex; justify-content:space-between; font-size:.68rem; font-weight:700; margin-bottom:9px; color:#777; }
+        #diff-labels span.active { color:var(--gold); transform:scale(1.1); display:inline-block; }
+        #diff-slider {
+            -webkit-appearance:none; width:100%; height:5px; border-radius:3px; outline:none; cursor:pointer;
+            background:linear-gradient(90deg,#3ddc84 0 25%,#ffd700 25% 50%,#ff8c00 50% 75%,#ff3b3b 75% 100%);
+        }
+        #diff-slider::-webkit-slider-thumb {
+            -webkit-appearance:none; width:22px; height:22px; border-radius:50%;
+            background:#fff; border:2.5px solid var(--gold); box-shadow:0 0 8px rgba(255,215,0,.7);
+        }
+        #diff-km { text-align:center; font-size:.7rem; color:#666; margin-top:6px; letter-spacing:1px; }
+
+        #loading {
+            position:fixed; inset:0; background:rgba(0,0,0,.93); display:none;
+            flex-direction:column; align-items:center; justify-content:center; z-index:999;
+        }
+        .spinner { width:52px; height:52px; border:4px solid #1a1a1a; border-top-color:var(--gold); border-radius:50%; animation:spin .9s linear infinite; }
+        @keyframes spin { to { transform:rotate(360deg); } }
+
+        /* COIN VISUALS */
+        .coin-pin { width:0!important; height:0!important; position:relative; overflow:visible; pointer-events:none; }
+        .coin-visual {
+            position:absolute; left:-11px; top:-11px;
+            width:22px; height:22px;
+            animation:coinFloat 1.15s ease-in-out infinite alternate;
+            filter:drop-shadow(0 0 7px rgba(255,215,0,1));
+        }
+        @keyframes coinFloat { 0% { transform:translateY(0px); } 100% { transform:translateY(-10px); } }
+        .coin-disc {
+            width:22px; height:22px; border-radius:50%;
+            position:relative; overflow:hidden;
+            background:conic-gradient(#fff9aa 0deg,#ffd700 30deg,#ffaa00 70deg,#ff8c00 100deg,#ffaa00 130deg,#ffd700 160deg,#fff9aa 180deg,#ffd700 210deg,#ffaa00 250deg,#ff8c00 280deg,#ffaa00 310deg,#ffd700 340deg,#fff9aa 360deg);
+            border:1.5px solid rgba(255,255,255,0.6);
+        }
+        .coin-disc::after {
+            content:''; position:absolute; top:-10%; left:-80%; width:55%; height:120%;
+            background:linear-gradient(105deg,transparent 20%,rgba(255,255,255,0.9) 50%,transparent 80%);
+            animation:shimSweep 2s linear infinite;
+        }
+        @keyframes shimSweep { 0% { left:-80%; opacity:0; } 10%{ opacity:1; } 50% { left:130%; opacity:1; } 100%{ left:130%; opacity:0; } }
+        .coin-shadow { position:absolute; bottom:-13px; left:50%; transform:translateX(-50%); width:14px; height:4px; border-radius:50%; background:rgba(0,0,0,0.5); animation:shadowScale 1.15s ease-in-out infinite alternate; }
+        @keyframes shadowScale { 0%{transform:translateX(-50%) scaleX(1);opacity:.55} 100%{transform:translateX(-50%) scaleX(.4);opacity:.2} }
+
+        /* NPC & GPS */
+        .npc-pin { width:0!important; height:0!important; position:relative; overflow:visible; pointer-events:none; }
+        .npc-wrap.walking { animation:npcBob 0.38s ease-in-out infinite alternate; }
+        @keyframes npcBob { 0% { transform:translateY(0px); } 100% { transform:translateY(-4px); } }
+        .gps-pin { width:0!important; height:0!important; position:relative; overflow:visible; }
+        .gps-dot {
+            position:absolute; width:18px; height:18px; left:-9px; top:-9px;
+            border-radius:50%; background:var(--cyan); border:3px solid white;
+            animation:gpsPulse 1.6s ease-out infinite;
+        }
+        @keyframes gpsPulse { 0%{box-shadow:0 0 0 0 rgba(0,251,255,.7)} 70%{box-shadow:0 0 0 16px rgba(0,251,255,0)} 100%{box-shadow:0 0 0 0 rgba(0,251,255,0)} }
+    </style>
+</head>
+<body>
+
+<div id="loading"><div class="spinner"></div><p id="loading-msg">KARTE LADEN...</p></div>
+
+<div id="map"></div>
+<div id="voxel-grid"></div>
+
+<div id="ui-overlay">
+    <div class="stats-card">
+        <div>
+            <div id="status-text">GPS SUCHEN...</div>
+            <div style="display:flex;align-items:center">
+                <span id="lvl-disp" style="font-size:1.1rem;font-weight:800">LEVEL 1</span>
+                <span class="lvl-badge" id="diff-tag">-- km</span>
+            </div>
+            <div class="coin-ctr">🪙 <span id="coins-coll">0</span><small style="font-size:.88rem;color:#666"> / <span id="coins-total">10</span></small></div>
+        </div>
+        <div style="text-align:right;line-height:2">
+            <div style="font-size:.64rem;color:var(--cyan);letter-spacing:1px">⛏ VOXEL WORLD</div>
+            <div id="dist-val" style="font-weight:700;color:var(--gold);font-size:.92rem">Quest bereit</div>
+            <div id="nav-status" style="font-size:.64rem;color:#444;letter-spacing:1px">NAVIGATION AUS</div>
+        </div>
+    </div>
+</div>
+
+<div id="difficulty-bar">
+    <div id="diff-labels">
+        <span>🟢 Easy</span><span>🟡 Medium</span><span>🟠 Hard</span><span>🔴 Ultra</span>
+    </div>
+    <input type="range" id="diff-slider" min="0" max="3" step="1" value="0">
+    <div id="diff-km">~6 km</div>
+</div>
+
+<div id="controls">
+    <button id="quest-btn" class="btn">🗺 QUEST</button>
+    <button id="nav-btn"   class="btn" disabled>▶ START</button>
+</div>
+
+<script>
+'use strict';
+
+const MT_KEY = '0h9bkxDZifPxKncVxFXv';
+const coinSound = new Audio('teslavision.mp3');
+
+const S = {
+    level:1, coinsToCollect:10,
+    baseDist:6, collected:0, userPos:null,
+    userHeading:0, navigating:false, routeReady:false,
+    coinPositions:[],
+};
+
+const map = new maplibregl.Map({
+    container: 'map',
+    style: `https://api.maptiler.com/maps/hybrid/style.json?key=${MT_KEY}`,
+    center: [8.8552, 48.2751],
+    zoom: 14, pitch: 62, maxPitch: 85,
+});
+
+map.on('load', () => {
+    document.getElementById('loading').style.display = 'none';
+    map.addSource('terrain', {
+        type: 'raster-dem',
+        url: `https://api.maptiler.com/tiles/terrain-rgb-v2/tiles.json?key=${MT_KEY}`,
+        tileSize: 256,
+    });
+    map.setTerrain({ source:'terrain', exaggeration:1.6 });
+
+    if ('geolocation' in navigator) {
+        navigator.geolocation.watchPosition(onGPS, 
+            (err) => { console.error(err); document.getElementById('status-text').innerText = 'GPS FEHLER'; }, 
+            { enableHighAccuracy:true, timeout: 5000, maximumAge: 0 });
+    }
+    spawnNPCs();
+});
+
+function onGPS(pos) {
+    const { longitude:lon, latitude:lat, heading } = pos.coords;
+    const first = !S.userPos;
+    S.userPos = [lon, lat];
+    
+    // Update heading if available (heading is in degrees, 0 = North)
+    if (heading !== null && heading !== undefined) {
+        S.userHeading = heading;
+    }
+
+    document.getElementById('status-text').innerText = 'GPS AKTIV ✓';
+
+    if (!gpsDot) {
+        const el = document.createElement('div');
+        el.className = 'gps-pin';
+        el.innerHTML = '<div class="gps-dot"></div>';
+        gpsDot = new maplibregl.Marker({ element:el, anchor:'center' }).setLngLat([lon,lat]).addTo(map);
+    } else {
+        gpsDot.setLngLat([lon, lat]);
+    }
+
+    if (first) {
+        map.flyTo({ center:[lon,lat], zoom:14 });
+    }
+
+    if (S.navigating) {
+        // "Driver View": follow position AND heading
+        map.easeTo({ 
+            center: [lon, lat], 
+            bearing: S.userHeading, 
+            duration: 800,
+            easing: (t) => t 
+        });
+    }
+
+    checkCoinCollection(lon, lat);
+}
+
+function checkCoinCollection(lon, lat) {
+    S.coinPositions.forEach(c => {
+        if (c.collected || getDist(lat,lon,c.pos[1],c.pos[0]) >= 0.03) return; // 30 meters
+        
+        c.collected = true;
+        c.marker.remove();
+        S.collected++;
+        
+        // Play Sound
+        coinSound.currentTime = 0;
+        coinSound.play().catch(e => console.log("Audio unlock required"));
+        
+        goldBurst();
+        updateUI();
+        
+        if (S.collected >= S.coinsToCollect) {
+            setTimeout(() => {
+                grandFinale();
+                setTimeout(() => { alert(`🏆 LEVEL ${S.level} COMPLETE!`); S.level++; generateRoute(); }, 900);
+            }, 300);
+        }
+    });
+}
+
+function getDist(la1,lo1,la2,lo2) {
+    const R=6371, dLa=(la2-la1)*Math.PI/180, dLo=(lo2-lo1)*Math.PI/180;
+    const a=Math.sin(dLa/2)**2+Math.cos(la1*Math.PI/180)*Math.cos(la2*Math.PI/180)*Math.sin(dLo/2)**2;
+    return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+
+async function generateRoute() {
+    if (!S.userPos) return;
+    document.getElementById('loading').style.display = 'flex';
+    const [lon, lat] = S.userPos;
+    const km = S.baseDist;
+    const rDeg = (km / (2*Math.PI)) / 111.32;
+    const pts = [`${lon},${lat}`];
+    const a0 = Math.random() * Math.PI * 2;
+    for (let i=0; i<4; i++) {
+        const a = a0 + i*(Math.PI/2);
+        pts.push(`${(lon+Math.cos(a)*(rDeg/Math.cos(lat*Math.PI/180))).toFixed(6)},${(lat+Math.sin(a)*rDeg).toFixed(6)}`);
+    }
+    pts.push(`${lon},${lat}`);
+    const geo = await fetchBRouter(pts.join('|'));
+    document.getElementById('loading').style.display = 'none';
+    if (geo) {
+        renderRoute(geo);
+        placeCoins(geo);
+        document.getElementById('diff-tag').innerText = `${(geo.features[0].properties['track-length']/1000).toFixed(1)} km`;
+        S.routeReady = true;
+        document.getElementById('nav-btn').disabled = false;
+    }
+}
+
+function toggleNav() {
+    S.navigating = !S.navigating;
+    const btn = document.getElementById('nav-btn');
+    // Unlock Audio Context on first click
+    coinSound.play().then(() => { coinSound.pause(); coinSound.currentTime = 0; });
+    
+    if (S.navigating) {
+        btn.classList.add('active'); btn.textContent='⏸ PAUSE';
+        document.getElementById('nav-status').innerText='▶ NAVIGATION AN';
+        if (S.userPos) map.flyTo({ center:S.userPos, zoom:17, pitch:75, bearing: S.userHeading });
+    } else {
+        btn.classList.remove('active'); btn.textContent='▶ START';
+        document.getElementById('nav-status').innerText='NAVIGATION AUS';
+        map.easeTo({ pitch: 62, bearing: 0 });
+    }
+}
+
+/* UI & NPC Boilerplate */
+let gpsDot = null;
+let npcs = [];
+const NPC_PALETTES = [{ skin:'ffd5b5', shirt:'1565c0', pants:'0d47a1', hair:'4e342e' },{ skin:'ffcba4', shirt:'c62828', pants:'4e342e', hair:'ff8f00' }];
+function spawnNPCs(){ if(!S.userPos){setTimeout(spawnNPCs,1000);return;} for(let i=0;i<5;i++){ const pal=NPC_PALETTES[i%2]; const el=document.createElement('div'); el.className='npc-pin'; el.innerHTML=`<div class="npc-wrap walking"><svg width="22" height="38" viewBox="0 0 11 19" shape-rendering="crispEdges"><rect x="2" y="0" width="7" height="6" fill="#${pal.hair}"/><rect x="2" y="1.5" width="7" height="5.5" fill="#${pal.skin}"/><rect x="2.5" y="7" width="6" height="5.5" fill="#${pal.shirt}"/><rect x="2.5" y="12.5" width="2.6" height="6.5" fill="#${pal.pants}"/></svg></div>`; const m=new maplibregl.Marker({element:el,anchor:'bottom'}).setLngLat([S.userPos[0]+(Math.random()-0.5)*0.005, S.userPos[1]+(Math.random()-0.5)*0.005]).addTo(map); }}
+async function fetchBRouter(l){ const url=`https://brouter.de/brouter?lonlats=${l}&profile=trekking&alternativeidx=0&format=geojson`; try{const r=await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`); return await r.json();}catch(e){return null;}}
+function renderRoute(g){ if(map.getSource('route')){map.getSource('route').setData(g);}else{map.addSource('route',{type:'geojson',data:g});map.addLayer({id:'route-line',type:'line',source:'route',paint:{'line-color':'#00fbff','line-width':6}});}}
+function placeCoins(g){ S.coinPositions.forEach(c=>c.marker.remove()); S.coinPositions=[]; S.collected=0; updateUI(); const coords=g.features[0].geometry.coordinates; const step=Math.floor(coords.length/(S.coinsToCollect+1)); for(let i=1;i<=S.coinsToCollect;i++){ const pos=coords[i*step]; const el=document.createElement('div'); el.className='coin-pin'; el.innerHTML='<div class="coin-visual"><div class="coin-disc"></div></div>'; const marker=new maplibregl.Marker({element:el}).setLngLat(pos).addTo(map); S.coinPositions.push({marker,collected:false,pos});}}
+function updateUI(){ document.getElementById('coins-coll').innerText=S.collected; document.getElementById('coins-total').innerText=S.coinsToCollect; document.getElementById('lvl-disp').innerText=`LEVEL ${S.level}`;}
+function goldBurst(){ confetti({particleCount:40,spread:60,origin:{y:0.7},colors:['#ffd700','#ffffff']}); }
+function grandFinale(){ const end=Date.now()+1000; (function f(){confetti({particleCount:5,angle:60,spread:55,origin:{x:0}});confetti({particleCount:5,angle:120,spread:55,origin:{x:1}});if(Date.now()<end)requestAnimationFrame(f);})(); }
+document.getElementById('quest-btn').addEventListener('click', generateRoute);
+document.getElementById('nav-btn').addEventListener('click', toggleNav);
+document.getElementById('diff-slider').addEventListener('input', e => { S.baseDist = [6,12,18,24][e.target.value]; document.getElementById('diff-km').innerText=`~${S.baseDist} km`; });
+</script>
+</body>
+</html>
