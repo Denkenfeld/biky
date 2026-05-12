@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Magic Doodle Ultra & Spin</title>
+    <style>
+        :root {
+            --glass: rgba(255, 255, 255, 0.1);
+            --glass-border: rgba(255, 255, 255, 0.2);
+        }
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; user-select: none; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; font-family: sans-serif; }
+        
+        #canvas-container {
+            position: absolute; width: 100%; height: 100%;
+            display: flex; justify-content: center; align-items: center;
+        }
+
+        /* Das Canvas, das sich drehen kann */
+        canvas { position: absolute; touch-action: none; transition: transform 0.1s linear; }
+        #guideCanvas { pointer-events: none; z-index: 5; opacity: 0.3; }
+
+        /* Animation für das ganze Canvas */
+        .canvas-spin { animation: full-rotate 10s linear infinite; }
+        @keyframes full-rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+        .panel {
+            position: absolute; top: 50%; transform: translateY(-50%);
+            background: var(--glass); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px);
+            border: 1px solid var(--glass-border); border-radius: 40px;
+            padding: 20px; display: flex; flex-direction: column; gap: 15px; z-index: 10;
+        }
+        .panel-left { left: 20px; }
+        .panel-right { right: 20px; }
+
+        .tool-group { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+        .label { font-size: 10px; text-transform: uppercase; color: #fff; opacity: 0.5; }
+
+        button {
+            width: 60px; height: 60px; border-radius: 20px; border: none;
+            background: rgba(255,255,255,0.15); color: white; font-size: 24px; cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; justify-content: center; align-items: center;
+        }
+        button.active { background: #fff; color: #000; transform: scale(1.1); box-shadow: 0 0 20px #fff; }
+        
+        .color-dot { width: 40px; height: 40px; border-radius: 50%; border: 3px solid rgba(255,255,255,0.3); cursor: pointer; }
+        .color-dot.active { border-color: #fff; transform: scale(1.2); }
+
+        .bottom-controls {
+            position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%);
+            z-index: 10; display: flex; gap: 10px;
+        }
+        .btn-wide { width: 90px; border-radius: 30px; font-weight: bold; background: rgba(255,255,255,0.2); color: white; font-size: 13px; }
+        .playing { background: #ff4757 !important; box-shadow: 0 0 20px rgba(255, 71, 87, 0.5); }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <canvas id="paintCanvas"></canvas>
+        <canvas id="guideCanvas"></canvas>
+    </div>
+
+    <div class="panel panel-left">
+        <div class="tool-group">
+            <div class="label">Spiegel</div>
+            <button onclick="setMirrors(1, this)">1</button>
+            <button onclick="setMirrors(2, this)">2</button>
+            <button onclick="setMirrors(4, this)" class="active">4</button>
+            <button onclick="setMirrors(8, this)">8</button>
+        </div>
+        <div class="tool-group">
+            <div class="label">Tools</div>
+            <button onclick="setTool('brush', this)" class="active">🖌️</button>
+            <button onclick="setTool('⭐', this)">⭐</button>
+            <button onclick="setTool('❤️', this)">❤️</button>
+            <button onclick="setTool('🌸', this)">🌸</button>
+        </div>
+    </div>
+
+    <div class="panel panel-right">
+        <div class="tool-group">
+            <div class="label">Farbe</div>
+            <div class="color-dot active" style="background:#FF3E6D" onclick="setColor('#FF3E6D', this)"></div>
+            <div class="color-dot" style="background:#4ADE80" onclick="setColor('#4ADE80', this)"></div>
+            <div class="color-dot" style="background:#00D2FF" onclick="setColor('#00D2FF', this)"></div>
+            <div class="color-dot" style="background:#BD00FF" onclick="setColor('#BD00FF', this)"></div>
+            <div class="color-dot" style="background:#FFFFFF" onclick="setColor('#FFFFFF', this)"></div>
+        </div>
+        <div class="tool-group">
+            <div class="label">Effekt</div>
+            <button onclick="setEffect('normal', this)" class="active">💧</button>
+            <button onclick="setEffect('glow', this)">☀️</button>
+            <button onclick="setEffect('neon', this)">💎</button>
+        </div>
+    </div>
+
+    <div class="bottom-controls">
+        <button onclick="togglePlay()" id="playBtn" class="btn-wide">▶️ Play</button>
+        <button onclick="toggleSpin()" id="spinBtn" class="btn-wide">🌀 Spin</button>
+        <button onclick="clearCanvas()" class="btn-wide">🗑️ Clear</button>
+        <button onclick="exportImage()" class="btn-wide" style="background:#4ADE80;">📸 Save</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('paintCanvas');
+        const ctx = canvas.getContext('2d');
+        const gCanvas = document.getElementById('guideCanvas');
+        const gCtx = gCanvas.getContext('2d');
+
+        let isDrawing = false;
+        let mirrors = 4;
+        let currentColor = '#FF3E6D';
+        let currentTool = 'brush';
+        let currentEffect = 'normal';
+        let rotationAngle = 0;
+        let isPlaying = false;
+        let lastX = 0, lastY = 0;
+        let mousePos = { x: 0, y: 0 };
+
+        function init() {
+            canvas.width = gCanvas.width = window.innerWidth;
+            canvas.height = gCanvas.height = window.innerHeight;
+            ctx.lineCap = ctx.lineJoin = 'round';
+            clearCanvas();
+        }
+        window.onresize = init;
+        init();
+
+        function setMirrors(n, btn) { mirrors = n; setActive(btn, '.panel-left button'); }
+        function setTool(t, btn) { currentTool = t; setActive(btn, '.panel-left button'); }
+        function setColor(c, dot) { currentColor = c; setActive(dot, '.color-dot'); }
+        function setEffect(e, btn) { currentEffect = e; setActive(btn, '.panel-right button'); }
+        function setActive(el, selector) {
+            document.querySelectorAll(selector).forEach(b => b.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        function clearCanvas() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        function togglePlay() {
+            isPlaying = !isPlaying;
+            document.getElementById('playBtn').classList.toggle('playing');
+        }
+
+        function toggleSpin() {
+            canvas.classList.toggle('canvas-spin');
+            gCanvas.classList.toggle('canvas-spin');
+            document.getElementById('spinBtn').classList.toggle('playing');
+        }
+
+        function update() {
+            gCtx.clearRect(0, 0, gCanvas.width, gCanvas.height);
+            if (isPlaying) {
+                rotationAngle += 0.01;
+                drawGuides();
+                if (isDrawing) draw({ clientX: mousePos.x, clientY: mousePos.y });
+            }
+            requestAnimationFrame(update);
+        }
+        update();
+
+        function drawGuides() {
+            const cx = gCanvas.width / 2;
+            const cy = gCanvas.height / 2;
+            gCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+            for (let i = 0; i < mirrors; i++) {
+                gCtx.save();
+                gCtx.translate(cx, cy);
+                gCtx.rotate(((Math.PI * 2) / mirrors) * i + rotationAngle);
+                gCtx.beginPath(); gCtx.moveTo(0, 0); gCtx.lineTo(0, -Math.max(canvas.width, canvas.height));
+                gCtx.stroke(); gCtx.restore();
+            }
+        }
+
+        function getPos(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            // Wichtig: Wenn das Canvas rotiert (Spin), müssen wir die Mauskoordinaten zurückrechnen
+            // Da wir hier aber im Zentrum zeichnen, nutzen wir die Center-Logik:
+            return { x: clientX, y: clientY };
+        }
+
+        function start(e) {
+            isDrawing = true;
+            const pos = getPos(e);
+            mousePos = pos;
+            lastX = pos.x; lastY = pos.y;
+            draw(e, true);
+        }
+
+        function draw(e, isClick = false) {
+            if (!isDrawing && !isClick) return;
+            const pos = e.clientX ? {x: e.clientX, y: e.clientY} : getPos(e);
+            mousePos = pos;
+            
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            for (let i = 0; i < mirrors; i++) {
+                ctx.save();
+                ctx.translate(cx, cy);
+                ctx.rotate(((Math.PI * 2) / mirrors) * i + rotationAngle);
+                
+                const rx = pos.x - cx; const ry = pos.y - cy;
+                const rlx = lastX - cx; const rly = lastY - cy;
+
+                render(rlx, rly, rx, ry, isClick);
+                ctx.restore();
+            }
+            lastX = pos.x; lastY = pos.y;
+        }
+
+        function render(x1, y1, x2, y2, isClick) {
+            ctx.strokeStyle = ctx.fillStyle = currentColor;
+            if (currentEffect === 'glow') {
+                ctx.shadowBlur = 60; ctx.shadowColor = currentColor;
+                ctx.globalCompositeOperation = 'lighter';
+            } else if (currentEffect === 'neon') {
+                ctx.shadowBlur = 90; ctx.shadowColor = '#fff';
+                ctx.globalCompositeOperation = 'screen';
+            } else {
+                ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+            }
+
+            if (currentTool === 'brush') {
+                if (isClick && !isPlaying) return; 
+                ctx.lineWidth = 12;
+                ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+            } else {
+                ctx.font = '55px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+                if (isClick || Math.hypot(x2-x1, y2-y1) > 35 || isPlaying) {
+                    ctx.fillText(currentTool, x2, y2);
+                }
+            }
+            ctx.globalCompositeOperation = 'source-over';
+        }
+
+        function exportImage() {
+            const data = canvas.toDataURL();
+            const link = document.createElement('a');
+            link.download = 'magic-doodle.png';
+            link.href = data;
+            link.click();
+        }
+
+        canvas.addEventListener('mousedown', start);
+        window.addEventListener('mousemove', (e) => { mousePos = {x: e.clientX, y: e.clientY}; if(isDrawing) draw(e); });
+        window.addEventListener('mouseup', () => isDrawing = false);
+        canvas.addEventListener('touchstart', (e) => { e.preventDefault(); start(e); }, {passive:false});
+        canvas.addEventListener('touchmove', (e) => { e.preventDefault(); draw(e); }, {passive:false});
+        canvas.addEventListener('touchend', () => isDrawing = false);
+    </script>
+</body>
+</html>
