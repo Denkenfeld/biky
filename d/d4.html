@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GravelData · Touren-Statistiken</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@300;400;500;600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="d2-stats.js"></script>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<style>
+:root {
+  --bg:#040508; --surface:#0b0e18; --border:rgba(255,255,255,0.08); --border2:rgba(255,255,255,0.13);
+  --glass:rgba(11,15,24,0.82); --accent:#00d4ff; --accent-dim:rgba(0,212,255,0.12);
+  --green:#00e676; --green-dim:rgba(0,230,118,0.12); --red:#ff3d6b; --orange:#ff9100;
+  --text:#e4ecf4; --dim:#8b9bb4; --muted:#3d4d60;
+  --font:'Barlow Condensed',sans-serif; --mono:'JetBrains Mono',monospace;
+  --r:12px; --r-sm:7px; --shadow:0 8px 36px rgba(0,0,0,0.55); --blur:blur(20px); --sidebar-w:220px;
+}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
+html,body{min-height:100%;background:var(--bg);color:var(--text);font-family:var(--font);letter-spacing:.02em;}
+body{background-image:radial-gradient(ellipse at 20% 10%,rgba(0,212,255,0.04) 0%,transparent 50%),radial-gradient(ellipse at 80% 80%,rgba(0,230,118,0.03) 0%,transparent 50%);}
+
+.app{display:flex;min-height:100vh;}
+
+/* SIDEBAR */
+.sidebar{width:var(--sidebar-w);flex-shrink:0;position:fixed;top:0;left:0;bottom:0;background:rgba(4,5,8,0.94);border-right:1px solid var(--border);display:flex;flex-direction:column;z-index:10;backdrop-filter:var(--blur);}
+.sidebar-logo{padding:22px 18px 14px;border-bottom:1px solid var(--border);}
+.sidebar-logo .brand{font-size:22px;font-weight:800;letter-spacing:.18em;color:var(--green);text-shadow:0 0 22px rgba(0,230,118,0.4);display:block;}
+.sidebar-logo .brand em{color:var(--text);font-style:normal;font-weight:300;}
+.sidebar-logo .subbrand{font-size:9px;letter-spacing:.22em;color:var(--muted);text-transform:uppercase;margin-top:2px;display:block;}
+.sidebar-nav{flex:1;padding:14px 10px;display:flex;flex-direction:column;gap:3px;}
+.nav-item{display:flex;align-items:center;gap:9px;padding:9px 11px;border-radius:var(--r-sm);font-size:12px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--dim);cursor:pointer;transition:.18s;border:1px solid transparent;}
+.nav-item:hover{background:rgba(255,255,255,0.04);color:var(--text);}
+.nav-item.active{background:var(--green-dim);border-color:rgba(0,230,118,0.25);color:var(--green);}
+.nav-item .ni{font-size:15px;flex-shrink:0;}
+.sidebar-bottom{padding:14px 10px;border-top:1px solid var(--border);}
+.user-card{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:var(--r-sm);background:rgba(0,230,118,0.06);border:1px solid rgba(0,230,118,0.18);}
+.user-avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--green));color:#000;font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.user-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.2;}
+.user-email{font-size:10px;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:130px;}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;margin-top:8px;padding:5px 10px;border-radius:var(--r-sm);width:100%;transition:.18s;}
+.logout-btn:hover{color:var(--red);border-color:rgba(255,61,107,.4);}
+.nav-gravelguide{display:flex;align-items:center;gap:8px;padding:8px 11px;border-radius:var(--r-sm);font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--accent);text-decoration:none;border:1px solid rgba(0,212,255,0.2);background:var(--accent-dim);transition:.18s;margin-bottom:8px;}
+.nav-gravelguide:hover{background:rgba(0,212,255,0.2);border-color:var(--accent);}
+
+/* MAIN */
+.main{margin-left:var(--sidebar-w);flex:1;display:flex;flex-direction:column;}
+.page{display:none;flex-direction:column;min-height:100vh;}
+.page.active{display:flex;}
+
+/* TOPBAR */
+.topbar{position:sticky;top:0;z-index:5;background:rgba(4,5,8,0.88);backdrop-filter:var(--blur);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:16px;}
+.topbar-title{font-size:24px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--text);}
+.topbar-sub{font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:.08em;}
+.topbar-spacer{flex:1;}
+.period-btns{display:flex;gap:4px;}
+.period-btn{font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:5px 11px;border-radius:5px;border:1px solid var(--border);background:none;color:var(--dim);cursor:pointer;transition:.15s;}
+.period-btn:hover{color:var(--text);border-color:var(--border2);}
+.period-btn.active{background:var(--green-dim);border-color:rgba(0,230,118,0.35);color:var(--green);}
+
+/* DASHBOARD LAYOUT */
+.content{padding:26px 28px 60px;display:flex;flex-direction:column;gap:20px;}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px;box-shadow:var(--shadow);}
+.card-title{font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;color:var(--text);margin-bottom:3px;}
+.card-sub{font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase;}
+.card-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;gap:12px;flex-wrap:wrap;}
+.two-col{display:grid;grid-template-columns:2fr 1fr;gap:16px;}
+.three-col{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;}
+.empty-state{text-align:center;padding:32px 20px;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;line-height:2;}
+
+/* KPI – desktop native sizes (bigger than d2-stats widget sizes) */
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;position:relative;overflow:hidden;transition:.2s;}
+.kpi-card:hover{border-color:var(--border2);}
+.kpi-card.highlight{background:linear-gradient(135deg,rgba(0,230,118,0.07),var(--surface));border-color:rgba(0,230,118,0.25);}
+.kpi-card.highlight::after{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--green);box-shadow:0 0 10px rgba(0,230,118,0.6);}
+.kpi-icon{font-size:18px;margin-bottom:8px;}
+.kpi-label{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
+.kpi-value{font-family:var(--mono);font-size:26px;font-weight:700;color:var(--text);line-height:1;letter-spacing:-.02em;}
+.kpi-card.highlight .kpi-value{color:var(--green);text-shadow:0 0 20px rgba(0,230,118,0.3);}
+
+/* Charts */
+.chart-wrap{position:relative;height:200px;}
+.chart-wrap-sm{position:relative;height:150px;}
+.mini-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;}
+.mini-row:last-child{border-bottom:none;}
+.mini-row-label{color:var(--dim);}
+.mini-row-val{font-family:var(--mono);font-weight:600;color:var(--text);}
+
+/* Goal ring */
+.ring-wrap{display:flex;justify-content:center;align-items:center;position:relative;margin:8px auto;}
+.ring-inner{position:absolute;text-align:center;}
+.ring-pct{font-family:var(--mono);font-size:22px;font-weight:700;color:var(--green);line-height:1;}
+.ring-sub{font-size:9px;color:var(--muted);margin-top:3px;}
+
+/* Heatmap */
+.heatmap-outer{overflow-x:auto;padding-bottom:4px;}
+.heatmap-grid{display:grid;grid-template-rows:repeat(7,12px);grid-auto-flow:column;gap:3px;width:max-content;}
+.heatmap-months{display:flex;gap:0;margin-bottom:6px;font-size:9px;font-weight:700;letter-spacing:.07em;color:var(--muted);text-transform:uppercase;width:max-content;}
+.hm-cell{width:12px;height:12px;border-radius:2px;background:rgba(255,255,255,0.04);cursor:pointer;transition:transform .1s;}
+.hm-cell:hover{transform:scale(1.3);z-index:2;}
+.hm-cell[data-level="1"]{background:rgba(0,230,118,0.2);}
+.hm-cell[data-level="2"]{background:rgba(0,230,118,0.45);}
+.hm-cell[data-level="3"]{background:rgba(0,230,118,0.7);}
+.hm-cell[data-level="4"]{background:rgba(0,230,118,0.95);box-shadow:0 0 5px rgba(0,230,118,0.4);}
+.heatmap-days{display:flex;flex-direction:column;gap:3px;margin-right:6px;flex-shrink:0;}
+.heatmap-days span{font-size:8px;color:var(--muted);height:12px;display:flex;align-items:center;font-family:var(--mono);}
+.hm-legend{display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted);margin-top:10px;letter-spacing:.06em;}
+.hm-legend-cells{display:flex;gap:3px;}
+.hm-legend-cell{width:12px;height:12px;border-radius:2px;}
+
+/* Tour list */
+.tour-list{display:flex;flex-direction:column;gap:6px;}
+.tour-row{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:var(--r-sm);background:rgba(255,255,255,0.03);border:1px solid transparent;transition:.15s;}
+.tour-row:hover{background:rgba(255,255,255,0.06);border-color:var(--border);}
+.tour-icon{font-size:16px;flex-shrink:0;}
+.tour-info{flex:1;min-width:0;}
+.tour-name{font-size:13px;font-weight:700;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tour-date{font-size:10px;color:var(--muted);margin-top:1px;}
+.tour-stats{display:flex;gap:10px;flex-shrink:0;}
+.tour-stat{text-align:right;}
+.tour-stat-v{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--accent);}
+.tour-stat-l{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+
+/* Chip row */
+.chip-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px;}
+.chip{font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 8px;border-radius:4px;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--dim);}
+.chip.green{background:rgba(0,230,118,0.1);border-color:rgba(0,230,118,0.3);color:var(--green);}
+.chip.accent{background:var(--accent-dim);border-color:rgba(0,212,255,0.3);color:var(--accent);}
+
+/* ── ROUTENKARTE PAGE ── */
+#page-routemap{position:relative;overflow:hidden;}
+.routemap-topbar{position:absolute;top:0;left:0;right:0;z-index:20;background:rgba(4,5,8,0.9);backdrop-filter:var(--blur);border-bottom:1px solid var(--border);padding:13px 28px;display:flex;align-items:center;gap:16px;height:58px;}
+.routemap-topbar .topbar-title{font-size:20px;}
+#routemap-map{position:absolute;inset:0;top:58px;}
+.map-overlay{position:absolute;z-index:15;bottom:28px;right:28px;display:flex;flex-direction:column;gap:10px;align-items:flex-end;}
+.map-legend{background:var(--glass);backdrop-filter:var(--blur);border:1px solid var(--border);border-radius:var(--r);padding:14px 16px;min-width:200px;}
+.map-legend-title{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px;}
+.legend-row{display:flex;align-items:center;gap:10px;margin-bottom:7px;font-size:11px;font-weight:600;}
+.legend-label{color:var(--dim);}
+.map-stats-bar{background:var(--glass);backdrop-filter:var(--blur);border:1px solid var(--border);border-radius:var(--r);padding:10px 18px;display:flex;gap:20px;}
+.msb-item{text-align:center;}
+.msb-val{font-family:var(--mono);font-size:18px;font-weight:700;color:var(--green);line-height:1;}
+.msb-label{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;margin-top:2px;}
+.map-load-overlay{position:absolute;inset:0;top:58px;z-index:18;background:rgba(4,5,8,0.88);backdrop-filter:blur(10px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;}
+.map-load-text{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);}
+.map-load-bar{width:220px;height:3px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;}
+.map-load-fill{height:100%;background:var(--green);border-radius:2px;transition:width .4s ease;box-shadow:0 0 8px rgba(0,230,118,0.6);}
+.maplibregl-ctrl-group{background:var(--glass)!important;backdrop-filter:var(--blur)!important;border:1px solid var(--border)!important;border-radius:var(--r-sm)!important;}
+.maplibregl-ctrl-group button{background:transparent!important;}
+.maplibregl-ctrl-group button span{filter:invert(1)brightness(.7);}
+
+/* AUTH */
+#auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+.auth-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:32px 28px;width:100%;max-width:380px;box-shadow:var(--shadow);}
+.auth-logo{text-align:center;margin-bottom:26px;}
+.auth-logo .brand{font-size:28px;font-weight:800;letter-spacing:.15em;color:var(--green);text-shadow:0 0 24px rgba(0,230,118,0.5);}
+.auth-logo .brand em{color:var(--text);font-style:normal;font-weight:300;}
+.auth-logo p{font-size:11px;color:var(--muted);margin-top:5px;letter-spacing:.06em;text-transform:uppercase;}
+.auth-tabs{display:flex;border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden;margin-bottom:18px;}
+.auth-tab{flex:1;padding:9px;background:none;border:none;font-family:var(--font);font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;color:var(--dim);transition:.15s;}
+.auth-tab.active{background:var(--green-dim);color:var(--green);}
+.auth-form{display:flex;flex-direction:column;gap:9px;}
+.auth-input{width:100%;background:rgba(0,0,0,0.45);border:1px solid var(--border);color:var(--text);padding:10px 13px;border-radius:var(--r-sm);font-family:var(--font);font-size:14px;font-weight:500;outline:none;transition:.18s;letter-spacing:.03em;}
+.auth-input:focus{border-color:var(--green);background:rgba(0,230,118,0.04);}
+.auth-input::placeholder{color:var(--muted);}
+.auth-btn{width:100%;padding:11px;background:var(--green-dim);border:1px solid rgba(0,230,118,0.4);color:var(--green);font-family:var(--font);font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border-radius:var(--r-sm);cursor:pointer;transition:.18s;margin-top:4px;}
+.auth-btn:hover{background:rgba(0,230,118,0.22);border-color:var(--green);}
+.auth-btn:disabled{opacity:.5;cursor:default;}
+.auth-error{background:rgba(255,61,107,0.12);border:1px solid rgba(255,61,107,0.3);color:var(--red);padding:8px 12px;border-radius:var(--r-sm);font-size:12px;display:none;}
+.auth-note{margin-top:16px;font-size:10px;color:var(--muted);text-align:center;line-height:1.7;letter-spacing:.04em;}
+
+/* LOADING */
+#loading-overlay{position:fixed;inset:0;z-index:9000;background:var(--bg);display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;opacity:0;pointer-events:none;transition:opacity .3s;}
+#loading-overlay.show{opacity:1;pointer-events:all;}
+.spin{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin .7s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-text{font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);}
+
+/* TOAST */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(16px);background:rgba(0,230,118,0.12);border:1px solid var(--green);border-radius:30px;padding:8px 20px;font-size:12px;font-weight:700;letter-spacing:.07em;color:var(--green);pointer-events:none;z-index:9999;opacity:0;transition:.3s;white-space:nowrap;}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+@media(max-width:900px){.sidebar{display:none;}.main{margin-left:0;}.two-col,.three-col{grid-template-columns:1fr;}.content{padding:16px;}}
+@media(max-width:600px){.kpi-grid{grid-template-columns:1fr 1fr;}.topbar{padding:12px 16px;}.topbar-title{font-size:18px;}}
+
+/* ── MOBILE BOTTOM NAV ── */
+.mobile-nav{display:none;position:fixed;bottom:0;left:0;right:0;z-index:100;background:rgba(4,5,8,0.96);backdrop-filter:var(--blur);border-top:1px solid var(--border);padding:0;padding-bottom:env(safe-area-inset-bottom);}
+.mobile-nav-inner{display:flex;}
+.mobile-nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding:10px 8px 9px;background:none;border:none;cursor:pointer;color:var(--dim);font-family:var(--font);font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;transition:.15s;-webkit-tap-highlight-color:transparent;border-top:2px solid transparent;}
+.mobile-nav-btn .mn-icon{font-size:18px;line-height:1;}
+.mobile-nav-btn.active{color:var(--green);border-top-color:var(--green);}
+@media(max-width:900px){
+  .mobile-nav{display:block;}
+  .content{padding-bottom:80px!important;}
+  #page-routemap .map-overlay{bottom:80px;}
+  .maplibregl-ctrl-bottom-left,.maplibregl-ctrl-bottom-right{bottom:72px!important;}
+}
+</style>
+</head>
+<body>
+
+<div id="loading-overlay"><div class="spin"></div><div class="loading-text">Verbinde…</div></div>
+
+<!-- AUTH -->
+<div id="auth-screen" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-logo"><div class="brand">GRAVEL<em>DATA</em></div><p>Einloggen mit GravelGuide Account</p></div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" onclick="showTab('login',this)">Einloggen</button>
+      <button class="auth-tab" onclick="showTab('reg',this)">Registrieren</button>
+    </div>
+    <div id="form-login" class="auth-form">
+      <div id="auth-error" class="auth-error"></div>
+      <input class="auth-input" id="login-email" type="email" placeholder="E-Mail" autocomplete="email">
+      <input class="auth-input" id="login-pass" type="password" placeholder="Passwort" autocomplete="current-password">
+      <button class="auth-btn" id="login-btn" onclick="loginUser()">🔑 Einloggen</button>
+    </div>
+    <div id="form-reg" class="auth-form" style="display:none;">
+      <div id="reg-error" class="auth-error"></div>
+      <input class="auth-input" id="reg-name" type="text" placeholder="Name (optional)">
+      <input class="auth-input" id="reg-email" type="email" placeholder="E-Mail">
+      <input class="auth-input" id="reg-pass" type="password" placeholder="Passwort (min. 8 Zeichen)">
+      <button class="auth-btn" id="reg-btn" onclick="registerUser()">✨ Account erstellen</button>
+    </div>
+    <div class="auth-note">Gleicher Account wie GravelGuide 3D · Routen werden synchronisiert</div>
+  </div>
+</div>
+
+<!-- APP -->
+<div id="app-screen" style="display:none;">
+  <div class="app">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="brand">GRAVEL<em>DATA</em></span>
+        <span class="subbrand">Touren · Statistiken</span>
+      </div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active" id="nav-dashboard" onclick="showPage('dashboard')">
+          <span class="ni">📊</span> Dashboard
+        </div>
+        <div class="nav-item" id="nav-routemap" onclick="showPage('routemap')">
+          <span class="ni">🌐</span> Community Routen
+        </div>
+      </nav>
+      <div class="sidebar-bottom">
+        <a class="nav-gravelguide" href="72.html">🗺 GravelGuide 3D</a>
+        <div class="user-card">
+          <div class="user-avatar" id="sb-avatar">?</div>
+          <div>
+            <div class="user-name" id="sb-name">—</div>
+            <div class="user-email" id="sb-email">—</div>
+          </div>
+        </div>
+        <button class="logout-btn" onclick="logoutUser()">Ausloggen</button>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <div class="main">
+
+      <!-- PAGE: DASHBOARD -->
+      <!-- d2-stats.js uses d2Scopes() which looks for elements containing .d2-kpi-grid.
+           We give this page the id "t-profil" so it's found automatically. -->
+      <div class="page active" id="t-profil">
+        <header class="topbar">
+          <div>
+            <div class="topbar-title">Dashboard</div>
+            <div class="topbar-sub d2-chart-period-label">Dieses Jahr</div>
+          </div>
+          <div class="topbar-spacer"></div>
+          <!-- Period buttons wired to d2SetPeriod from d2-stats.js -->
+          <div class="period-btns d2-period-btns">
+            <button class="period-btn d2-period-btn" onclick="d2SetPeriod('week',this)">7T</button>
+            <button class="period-btn d2-period-btn" onclick="d2SetPeriod('month',this)">Monat</button>
+            <button class="period-btn d2-period-btn active" onclick="d2SetPeriod('year',this)">Jahr</button>
+            <button class="period-btn d2-period-btn" onclick="d2SetPeriod('all',this)">Gesamt</button>
+          </div>
+        </header>
+
+        <div class="content">
+
+          <!-- KPIs -->
+          <div class="kpi-grid d2-kpi-grid">
+            <div class="kpi-card highlight"><div class="kpi-icon">🚴</div><div class="kpi-label">Distanz gesamt</div><div class="kpi-value d2-kpi-km">—</div></div>
+            <div class="kpi-card"><div class="kpi-icon">⛰</div><div class="kpi-label">Höhenmeter</div><div class="kpi-value d2-kpi-hm">—</div></div>
+            <div class="kpi-card"><div class="kpi-icon">🔥</div><div class="kpi-label">Kalorien</div><div class="kpi-value d2-kpi-cal">—</div></div>
+            <div class="kpi-card"><div class="kpi-icon">📍</div><div class="kpi-label">Touren</div><div class="kpi-value d2-kpi-tours">—</div></div>
+          </div>
+
+          <!-- Distanz-Chart + Wochentag -->
+          <div class="two-col">
+            <div class="card">
+              <div class="card-header">
+                <div><div class="card-title">Distanz-Verlauf</div><div class="card-sub d2-chart-period-label">Dieses Jahr</div></div>
+                <div style="display:flex;gap:5px;" class="d2-metric-btns">
+                  <button class="period-btn d2-metric-btn active-km" onclick="d2SetMetric('km',this)" style="font-size:9px;padding:4px 9px;">km</button>
+                  <button class="period-btn d2-metric-btn" onclick="d2SetMetric('hm',this)" style="font-size:9px;padding:4px 9px;">Hm</button>
+                  <button class="period-btn d2-metric-btn" onclick="d2SetMetric('cal',this)" style="font-size:9px;padding:4px 9px;">kcal</button>
+                </div>
+              </div>
+              <div class="chart-wrap"><canvas class="d2-main-chart"></canvas></div>
+            </div>
+            <div class="card">
+              <div class="card-header"><div><div class="card-title">Aktivität</div><div class="card-sub">je Wochentag</div></div></div>
+              <div class="chart-wrap-sm"><canvas class="d2-weekday-chart"></canvas></div>
+              <div style="margin-top:12px;">
+                <div class="mini-row"><span class="mini-row-label">Lieblingstag</span><span class="mini-row-val d2-fav-day" style="color:var(--green);">—</span></div>
+                <div class="mini-row"><span class="mini-row-label">Ø Touren/Woche</span><span class="mini-row-val d2-avg-per-week">—</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Touren-Längen + Aktivitäts-Stats + Jahresziel -->
+          <div class="three-col">
+            <div class="card">
+              <div class="card-title" style="margin-bottom:14px;">Touren-Längen</div>
+              <div class="chart-wrap-sm"><canvas class="d2-doughnut-chart"></canvas></div>
+              <div style="margin-top:12px;">
+                <div class="mini-row"><span class="mini-row-label">Längste Tour</span><span class="mini-row-val d2-longest-tour">—</span></div>
+                <div class="mini-row"><span class="mini-row-label">Ø Distanz</span><span class="mini-row-val d2-avg-dist">—</span></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title" style="margin-bottom:14px;">Aktivitäts-Stats</div>
+              <div class="mini-row"><span class="mini-row-label">Aktive Wochen</span><span class="mini-row-val d2-active-weeks">—</span></div>
+              <div class="mini-row"><span class="mini-row-label">Aktivster Monat</span><span class="mini-row-val d2-best-month" style="color:var(--accent);">—</span></div>
+              <div class="mini-row"><span class="mini-row-label">Längster Streak</span><span class="mini-row-val d2-streak">—</span></div>
+              <div class="mini-row"><span class="mini-row-label">Ø Höhenmeter</span><span class="mini-row-val d2-avg-hm">—</span></div>
+              <div class="mini-row"><span class="mini-row-label">Ø Kalorien</span><span class="mini-row-val d2-avg-cal">—</span></div>
+            </div>
+            <div class="card">
+              <div class="card-header" style="margin-bottom:8px;">
+                <div><div class="card-title">Jahresziel</div><div class="card-sub d2-goal-sub">5.000 km</div></div>
+              </div>
+              <div class="ring-wrap" style="width:110px;height:110px;">
+                <svg width="110" height="110" viewBox="0 0 110 110">
+                  <circle cx="55" cy="55" r="46" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="9"/>
+                  <circle cx="55" cy="55" r="46" fill="none" stroke="var(--green)" stroke-width="9"
+                    stroke-linecap="round" stroke-dasharray="289" class="d2-goal-ring" stroke-dashoffset="289"
+                    transform="rotate(-90 55 55)" style="transition:stroke-dashoffset 1s ease;filter:drop-shadow(0 0 6px rgba(0,230,118,0.5));"/>
+                </svg>
+                <div class="ring-inner">
+                  <div class="ring-pct d2-goal-pct">0%</div>
+                  <div class="ring-sub d2-goal-reached">— km</div>
+                </div>
+              </div>
+              <div style="margin-top:10px;">
+                <div class="mini-row"><span class="mini-row-label">Verbleibend</span><span class="mini-row-val d2-goal-remaining" style="color:var(--green);">—</span></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Jahreskalender -->
+          <div class="card">
+            <div class="card-header">
+              <div><div class="card-title">Aktivitäts-Kalender <span class="d2-heatmap-year"></span></div><div class="card-sub">Touren nach Häufigkeit</div></div>
+              <div class="hm-legend">
+                <span>Wenig</span>
+                <div class="hm-legend-cells">
+                  <div class="hm-legend-cell" style="background:rgba(255,255,255,0.04);"></div>
+                  <div class="hm-legend-cell" style="background:rgba(0,230,118,0.2);"></div>
+                  <div class="hm-legend-cell" style="background:rgba(0,230,118,0.45);"></div>
+                  <div class="hm-legend-cell" style="background:rgba(0,230,118,0.7);"></div>
+                  <div class="hm-legend-cell" style="background:rgba(0,230,118,0.95);"></div>
+                </div>
+                <span>Viel</span>
+              </div>
+            </div>
+            <div class="d2-heatmap-container"></div>
+            <div class="chip-row d2-heatmap-chips"></div>
+          </div>
+
+          <!-- Letzte Touren -->\n          <div class=\"card\">\n            <div class=\"card-header\"><div class=\"card-title\">Letzte Touren</div></div>\n            <div class=\"tour-list d2-tour-list\">\n              <div class=\"empty-state\">Noch keine Touren.<br>Starte eine Route im GravelGuide!</div>\n            </div>\n          </div>\n\n          <!-- Community Routen (mobiler Einstieg) -->\n          <div class=\"card\" style=\"background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(0,230,118,0.04));border-color:rgba(0,212,255,0.2);\">\n            <div class=\"card-header\" style=\"margin-bottom:12px;\">\n              <div>\n                <div class=\"card-title\" style=\"color:var(--accent);\">🌐 Community Routen</div>\n                <div class=\"card-sub\">Alle Strecken aller Fahrer</div>\n              </div>\n            </div>\n            <p style=\"font-size:12px;color:var(--dim);line-height:1.7;margin-bottom:14px;\">Sieh wo andere Fahrer unterwegs sind — Helligkeit &amp; Breite zeigen wie oft eine Strecke gefahren wurde.</p>\n            <button onclick=\"showPage('routemap')\" style=\"width:100%;padding:11px;background:var(--accent-dim);border:1px solid rgba(0,212,255,0.4);color:var(--accent);font-family:var(--font);font-size:13px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;border-radius:var(--r-sm);cursor:pointer;transition:.18s;\" onmouseover=\"this.style.background='rgba(0,212,255,0.2)'\" onmouseout=\"this.style.background='var(--accent-dim)'\">Routenkarte öffnen →</button>\n          </div>
+
+        </div>
+      </div><!-- /t-profil (page-dashboard) -->
+
+      <!-- PAGE: COMMUNITY ROUTENKARTE -->
+      <div class="page" id="page-routemap" style="position:relative;height:100vh;overflow:hidden;">
+
+        <div class="routemap-topbar">
+          <div>
+            <div class="topbar-title">Community Routen</div>
+            <div class="topbar-sub">Alle Strecken aller Fahrer · Helligkeit & Breite = Häufigkeit</div>
+          </div>
+          <div class="topbar-spacer"></div>
+          <div id="routemap-status" style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.07em;"></div>
+        </div>
+
+        <div id="routemap-map"></div>
+
+        <div class="map-load-overlay" id="map-load-overlay">
+          <div class="spin" style="width:28px;height:28px;border-width:3px;border-top-color:var(--green);"></div>
+          <div class="map-load-text" id="map-load-text">Lade Routen…</div>
+          <div class="map-load-bar"><div class="map-load-fill" id="map-load-fill" style="width:0%"></div></div>
+        </div>
+
+        <div class="map-overlay">
+          <div class="map-stats-bar">
+            <div class="msb-item"><div class="msb-val" id="ms-routes">—</div><div class="msb-label">Routen</div></div>
+            <div class="msb-item"><div class="msb-val" id="ms-fahrer">—</div><div class="msb-label">Fahrer</div></div>
+            <div class="msb-item"><div class="msb-val" id="ms-km">—</div><div class="msb-label">km gesamt</div></div>
+          </div>
+          <div class="map-legend">
+            <div class="map-legend-title">Strecken-Intensität</div>
+            <div class="legend-row"><svg width="44" height="6"><line x1="0" y1="3" x2="44" y2="3" stroke="rgba(0,100,140,0.8)" stroke-width="2" stroke-linecap="round"/></svg><span class="legend-label">1× gefahren</span></div>
+            <div class="legend-row"><svg width="44" height="8"><line x1="0" y1="4" x2="44" y2="4" stroke="rgba(0,180,210,0.9)" stroke-width="3" stroke-linecap="round"/></svg><span class="legend-label">2–4× gefahren</span></div>
+            <div class="legend-row"><svg width="44" height="10"><line x1="0" y1="5" x2="44" y2="5" stroke="#00e676" stroke-width="5" stroke-linecap="round"/></svg><span class="legend-label">5–9× gefahren</span></div>
+            <div class="legend-row"><svg width="44" height="14"><line x1="0" y1="7" x2="44" y2="7" stroke="#ffffff" stroke-width="8" stroke-linecap="round" style="filter:drop-shadow(0 0 4px #fff)"/></svg><span class="legend-label">10+× gefahren</span></div>
+          </div>
+        </div>
+
+      </div><!-- /page-routemap -->
+
+    </div><!-- /main -->
+  </div><!-- /app -->
+</div><!-- /app-screen -->
+
+<div id="toast"></div>
+
+<script type="module">
+import { Client, Account, Databases, ID, Query } from 'https://cdn.jsdelivr.net/npm/appwrite@16/dist/esm/sdk.js';
+
+const AW_ENDPOINT = 'https://cloud.appwrite.io/v1';
+const AW_PROJECT  = '69ff896300258f20e17a';
+const AW_DB       = '69ff8f4c003d6fd82f1e';
+const AW_COL      = 'routes';
+
+const client  = new Client().setEndpoint(AW_ENDPOINT).setProject(AW_PROJECT);
+const account = new Account(client);
+const db      = new Databases(client);
+
+let currentUser    = null;
+let routeMapInited = false;
+let routeMap       = null;
+
+// ── helpers ──────────────────────────────────────────────
+function showToast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2600); }
+function setLoading(on){ document.getElementById('loading-overlay').classList.toggle('show',on); }
+
+// ── auth ui ──────────────────────────────────────────────
+window.showTab = function(tab,btn){
+  document.querySelectorAll('.auth-tab').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+  document.getElementById('form-login').style.display = tab==='login'?'':'none';
+  document.getElementById('form-reg').style.display   = tab==='reg'  ?'':'none';
+};
+
+window.loginUser = async function(){
+  const email=document.getElementById('login-email').value.trim(), pass=document.getElementById('login-pass').value;
+  const errEl=document.getElementById('auth-error'); errEl.style.display='none';
+  if(!email||!pass){ errEl.textContent='E-Mail und Passwort eingeben.'; errEl.style.display='block'; return; }
+  const btn=document.getElementById('login-btn'); btn.disabled=true; btn.textContent='⏳ Verbinde…';
+  try { await account.createEmailPasswordSession(email,pass); currentUser=await account.get(); await initDashboard(); }
+  catch(e){ errEl.textContent=e.message||'Login fehlgeschlagen'; errEl.style.display='block'; btn.disabled=false; btn.textContent='🔑 Einloggen'; }
+};
+
+window.registerUser = async function(){
+  const name=document.getElementById('reg-name').value.trim(), email=document.getElementById('reg-email').value.trim(), pass=document.getElementById('reg-pass').value;
+  const errEl=document.getElementById('reg-error'); errEl.style.display='none';
+  if(!email||!pass){ errEl.textContent='E-Mail und Passwort eingeben.'; errEl.style.display='block'; return; }
+  if(pass.length<8){ errEl.textContent='Passwort mind. 8 Zeichen.'; errEl.style.display='block'; return; }
+  const btn=document.getElementById('reg-btn'); btn.disabled=true; btn.textContent='⏳ Erstelle Account…';
+  try { await account.create(ID.unique(),email,pass,name||undefined); await account.createEmailPasswordSession(email,pass); currentUser=await account.get(); await initDashboard(); }
+  catch(e){ errEl.textContent=e.message||'Registrierung fehlgeschlagen'; errEl.style.display='block'; btn.disabled=false; btn.textContent='✨ Account erstellen'; }
+};
+
+window.logoutUser = async function(){
+  try{ await account.deleteSession('current'); }catch(e){}
+  currentUser=null; window._cloudRides=[];
+  document.getElementById('app-screen').style.display='none';
+  document.getElementById('auth-screen').style.display='flex';
+  showToast('Ausgeloggt');
+};
+
+// ── page nav ─────────────────────────────────────────────
+window.showPage = function(page){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  const pageEl = page==='dashboard' ? document.getElementById('t-profil') : document.getElementById('page-'+page);
+  if(pageEl) pageEl.classList.add('active');
+  const navEl = document.getElementById('nav-'+page);
+  if(navEl) navEl.classList.add('active');
+  if(page==='routemap' && !routeMapInited){ routeMapInited=true; setTimeout(initRouteMap,80); }
+};
+
+// ── init ─────────────────────────────────────────────────
+async function init(){
+  setLoading(true);
+  try{ currentUser=await account.get(); await initDashboard(); }
+  catch(e){ document.getElementById('auth-screen').style.display='flex'; }
+  finally{ setLoading(false); }
+}
+
+async function initDashboard(){
+  document.getElementById('auth-screen').style.display='none';
+  document.getElementById('app-screen').style.display='block';
+  const name=currentUser.name||currentUser.email;
+  document.getElementById('sb-name').textContent=name;
+  document.getElementById('sb-email').textContent=currentUser.email;
+  document.getElementById('sb-avatar').textContent=name.slice(0,2).toUpperCase();
+  await loadRides();
+  // expose to d2-stats.js via window._cloudRides
+  window.initD2Stats();
+}
+
+async function loadRides(){
+  try{
+    const res=await db.listDocuments(AW_DB,AW_COL,[Query.equal('userId',currentUser.$id),Query.orderDesc('$createdAt'),Query.limit(200)]);
+    window._cloudRides = res.documents.filter(d=>d.routeName!=='__weight__'&&(d.distance||0)>0).map(d=>({
+      name:d.routeName||'Tour', date:d.date||d.$createdAt?.slice(0,10)||'',
+      km:(d.distance||0)/1000, hm:d.elevation||0, cal:d.calories||0,
+    }));
+    // merge local
+    try{
+      const local=JSON.parse(localStorage.getItem('vn_rides')||'[]');
+      local.forEach(lr=>{ if(lr.date&&!window._cloudRides.some(cr=>cr.date===lr.date&&Math.abs(cr.km-(lr.km||0))<0.5)) window._cloudRides.push({name:lr.name||`Tour ${lr.date}`,date:lr.date,km:lr.km||0,hm:lr.hm||0,cal:lr.cal||0}); });
+    }catch(e){}
+    window._cloudRides.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  }catch(e){
+    console.warn('Rides load failed:',e);
+    try{ const local=JSON.parse(localStorage.getItem('vn_rides')||'[]'); window._cloudRides=local.map(r=>({name:r.name||`Tour ${r.date}`,date:r.date||'',km:r.km||0,hm:r.hm||0,cal:r.cal||0})); }catch(e2){ window._cloudRides=[]; }
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+//  COMMUNITY ROUTENKARTE
+// ══════════════════════════════════════════════════════════
+async function initRouteMap(){
+  const lo=document.getElementById('map-load-overlay');
+  const lt=document.getElementById('map-load-text');
+  const lf=document.getElementById('map-load-fill');
+  lo.style.display='flex'; lt.textContent='Initialisiere Karte…'; lf.style.width='8%';
+
+  routeMap = new maplibregl.Map({
+    container: 'routemap-map',
+    style: {
+      version: 8,
+      glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+      sources: { osm: { type:'raster', tiles:['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png','https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, attribution:'© OpenStreetMap' } },
+      layers: [
+        { id:'bg', type:'background', paint:{'background-color':'#000'} },
+        { id:'osm', type:'raster', source:'osm', paint:{'raster-saturation':-1,'raster-contrast':0.1,'raster-brightness-min':0,'raster-brightness-max':0.32,'raster-opacity':0.9} }
+      ]
+    },
+    center: [9.15, 48.35], zoom: 9, pitchWithRotate: false, maxPitch: 0
+  });
+
+  routeMap.addControl(new maplibregl.NavigationControl({showCompass:false}), 'top-right');
+  routeMap.addControl(new maplibregl.ScaleControl({maxWidth:120,unit:'metric'}), 'bottom-left');
+
+  lf.style.width='20%'; lt.textContent='Lade alle Community-Routen…';
+
+  let allDocs=[];
+  try{
+    let cursor=null, page=0;
+    while(true){
+      const qs=[Query.orderDesc('$createdAt'), Query.limit(100)];
+      if(cursor) qs.push(Query.cursorAfter(cursor));
+      const res=await db.listDocuments(AW_DB, AW_COL, qs);
+      const valid=res.documents.filter(d=>d.routeName!=='__weight__' && (d.distance||0)>0);
+      allDocs=allDocs.concat(valid);
+      lf.style.width=Math.min(20+allDocs.length*0.3,65)+'%';
+      lt.textContent=`${allDocs.length} Routen geladen…`;
+      if(res.documents.length<100) break;
+      cursor=res.documents[res.documents.length-1].$id;
+      if(++page>30) break;
+    }
+  }catch(e){ console.warn('Community routes load error:',e); }
+
+  lf.style.width='70%'; lt.textContent='Berechne Strecken-Häufigkeiten…';
+
+  const GRID=0.001;
+  const snap=(v)=>Math.round(v/GRID)*GRID;
+  const segCounts=new Map();
+  const routeLines=[];
+  const userSet=new Set();
+
+  for(const doc of allDocs){
+    let coords=[];
+    try{ coords=JSON.parse(doc.coordinates||'[]'); }catch(e){ continue; }
+    if(!Array.isArray(coords)||coords.length<2) continue;
+
+    const norm=coords.map(c=>{
+      if(Array.isArray(c)&&c.length>=2) return [parseFloat(c[0]),parseFloat(c[1])];
+      if(c&&typeof c==='object'){ if('lng' in c) return [parseFloat(c.lng),parseFloat(c.lat)]; if('lon' in c) return [parseFloat(c.lon),parseFloat(c.lat)]; }
+      return null;
+    }).filter(c=>c&&!isNaN(c[0])&&!isNaN(c[1])&&Math.abs(c[0])<=180&&Math.abs(c[1])<=90);
+
+    if(norm.length<2) continue;
+    userSet.add(doc.userId);
+    routeLines.push({ coords:norm, km:(doc.distance||0)/1000 });
+
+    for(let i=0;i<norm.length-1;i++){
+      const a=[snap(norm[i][0]),snap(norm[i][1])];
+      const b=[snap(norm[i+1][0]),snap(norm[i+1][1])];
+      const key=a[0]<b[0]||(a[0]===b[0]&&a[1]<b[1])?`${a[0]},${a[1]}|${b[0]},${b[1]}`:`${b[0]},${b[1]}|${a[0]},${a[1]}`;
+      segCounts.set(key,(segCounts.get(key)||0)+1);
+    }
+  }
+
+  lf.style.width='88%'; lt.textContent='Rendere auf Karte…';
+
+  const features=routeLines.map(({coords,km})=>{
+    let maxFreq=1;
+    for(let i=0;i<coords.length-1;i++){
+      const a=[snap(coords[i][0]),snap(coords[i][1])];
+      const b=[snap(coords[i+1][0]),snap(coords[i+1][1])];
+      const key=a[0]<b[0]||(a[0]===b[0]&&a[1]<b[1])?`${a[0]},${a[1]}|${b[0]},${b[1]}`:`${b[0]},${b[1]}|${a[0]},${a[1]}`;
+      maxFreq=Math.max(maxFreq,segCounts.get(key)||1);
+    }
+    return { type:'Feature', properties:{ freq:maxFreq, km }, geometry:{ type:'LineString', coordinates:coords } };
+  });
+
+  const addLayers=()=>{
+    if(!features.length){
+      lt.textContent='Keine Routen mit GPS-Koordinaten gefunden.';
+      lf.style.width='100%';
+      setTimeout(()=>lo.style.display='none',2500);
+      return;
+    }
+
+    routeMap.addSource('routes',{ type:'geojson', data:{ type:'FeatureCollection', features } });
+
+    // Strichstärke: zoom-abhängiger Skalierungsfaktor × frequenz-abhängige Basisbreite
+    // Bei Zoom 8 (weit raus) → Faktor ~0.18, bei Zoom 14 (nah ran) → Faktor ~1.0
+    // Verhindert das "Farbblock"-Problem beim Rauszoomen
+    const zoomScale = ['interpolate',['exponential',2],['zoom'],
+      6, 0.08,
+      8, 0.18,
+      10, 0.4,
+      12, 0.7,
+      14, 1.0,
+      16, 1.4
+    ];
+
+    routeMap.addLayer({ id:'routes-glow', type:'line', source:'routes', layout:{'line-join':'round','line-cap':'round'}, paint:{
+      'line-color':['interpolate',['linear'],['get','freq'],1,'#001a2e',4,'#003344',8,'#004433',15,'#ffffff'],
+      'line-opacity':['interpolate',['linear'],['get','freq'],1,0.06,4,0.12,10,0.2],
+      'line-width':['*', zoomScale, ['interpolate',['linear'],['get','freq'],1,8,4,14,8,22,15,34]],
+      'line-blur':['*', zoomScale, 5]
+    }});
+
+    routeMap.addLayer({ id:'routes-main', type:'line', source:'routes', layout:{'line-join':'round','line-cap':'round'}, paint:{
+      'line-color':['interpolate',['linear'],['get','freq'],1,'#004466',2,'#0077aa',3,'#00aabb',5,'#00cc88',8,'#00e676',12,'#88ffaa',20,'#ffffff'],
+      'line-opacity':['interpolate',['linear'],['get','freq'],1,0.5,2,0.65,4,0.8,8,0.92,15,1.0],
+      'line-width':['*', zoomScale, ['interpolate',['linear'],['get','freq'],1,1.2,2,2.0,3,3.0,5,4.8,8,7.0,12,10.0,20,14.0]]
+    }});
+
+    const allC=features.flatMap(f=>f.geometry.coordinates);
+    if(allC.length){
+      const lngs=allC.map(c=>c[0]), lats=allC.map(c=>c[1]);
+      try{ routeMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:{top:80,bottom:60,left:40,right:320},duration:1400,maxZoom:13}); }catch(e){}
+    }
+
+    const totKm=routeLines.reduce((s,r)=>s+r.km,0);
+    document.getElementById('ms-routes').textContent=features.length;
+    document.getElementById('ms-fahrer').textContent=userSet.size;
+    document.getElementById('ms-km').textContent=totKm>0?totKm.toFixed(0):'—';
+    document.getElementById('routemap-status').textContent=`${features.length} Routen · ${userSet.size} Fahrer`;
+
+    lf.style.width='100%';
+    setTimeout(()=>{ lo.style.display='none'; },500);
+
+    const tip=document.createElement('div');
+    tip.style.cssText='position:absolute;background:rgba(4,5,8,0.93);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:7px 13px;font-family:JetBrains Mono,monospace;font-size:11px;color:#e4ecf4;pointer-events:none;display:none;z-index:25;white-space:nowrap;';
+    document.getElementById('routemap-map').appendChild(tip);
+    routeMap.on('mouseenter','routes-main',e=>{ routeMap.getCanvas().style.cursor='crosshair'; const {freq,km}=e.features[0].properties; tip.style.display='block'; tip.innerHTML=`<span style="color:#00e676;font-weight:700;">${freq}×</span> gefahren &nbsp;·&nbsp; <span style="color:#00d4ff;">${parseFloat(km).toFixed(1)} km</span>`; });
+    routeMap.on('mousemove','routes-main',e=>{ tip.style.left=(e.point.x+14)+'px'; tip.style.top=(e.point.y-28)+'px'; });
+    routeMap.on('mouseleave','routes-main',()=>{ routeMap.getCanvas().style.cursor=''; tip.style.display='none'; });
+  };
+
+  if(routeMap.loaded()) addLayers();
+  else routeMap.on('load', addLayers);
+}
+
+<!-- MOBILE BOTTOM NAV -->
+<nav class="mobile-nav" id="mobile-nav">
+  <div class="mobile-nav-inner">
+    <button class="mobile-nav-btn active" id="mobnav-dashboard" onclick="showPage('dashboard')">
+      <span class="mn-icon">📊</span>Dashboard
+    </button>
+    <button class="mobile-nav-btn" id="mobnav-routemap" onclick="showPage('routemap')">
+      <span class="mn-icon">🌐</span>Community
+    </button>
+  </div>
+</nav>
+
+<script>
+// Sync mobile nav active state with showPage
+const _origShowPage = window.showPage;
+window.showPage = function(id){
+  if(_origShowPage) _origShowPage(id);
+  document.querySelectorAll('.mobile-nav-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('mobnav-' + id);
+  if(btn) btn.classList.add('active');
+};
+</script>
+
+</body>
+</html>
