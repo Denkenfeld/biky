@@ -597,17 +597,32 @@ window.showPage = function(page){
 // ── init ─────────────────────────────────────────────────
 async function init(){
   setLoading(true);
+  // Appwrite stores the session in localStorage under a key like 'cookieFallback'.
+  // If we're on a different origin than where the login happened, the cookie won't
+  // exist but localStorage might. The SDK handles this automatically IF we wait for
+  // it. Give it a small delay on first load so the SDK can restore state.
+  await new Promise(r=>setTimeout(r,300));
   try{
     currentUser = await account.get();
     await initDashboard();
   } catch(e){
+    console.warn('[GravelData] account.get() failed:', e.code, e.message);
     const code = e.code || e.status || 0;
-    if(code !== 401 && code !== 0){
-      // Possible transient/CORS error – retry once
-      await new Promise(r=>setTimeout(r,1200));
-      try{ currentUser=await account.get(); await initDashboard(); return; }catch(e2){}
+    if(code === 401 || code === 0){
+      // Genuinely not authenticated
+      document.getElementById('auth-screen').style.display='flex';
+    } else {
+      // Network/CORS/transient – retry once after longer delay
+      await new Promise(r=>setTimeout(r,1500));
+      try{
+        currentUser = await account.get();
+        await initDashboard();
+        return;
+      } catch(e2){
+        console.warn('[GravelData] retry failed:', e2.code, e2.message);
+        document.getElementById('auth-screen').style.display='flex';
+      }
     }
-    document.getElementById('auth-screen').style.display='flex';
   } finally{ setLoading(false); }
 }
 
@@ -621,11 +636,23 @@ async function initDashboard(){
   document.getElementById('sb-email').textContent=currentUser.email;
   document.getElementById('sb-avatar').textContent=name.slice(0,2).toUpperCase();
   await loadRides();
-  // expose to d2-stats.js via window._cloudRides
-  window.initD2Stats();
+  console.log('[GravelData] rides loaded:', (window._cloudRides||[]).length);
+  // d2-stats.js may not be ready yet if it's loaded as a plain script –
+  // wait until initD2Stats is available
+  let waited = 0;
+  while(typeof window.initD2Stats !== 'function' && waited < 3000){
+    await new Promise(r=>setTimeout(r,100));
+    waited += 100;
+  }
+  if(typeof window.initD2Stats === 'function'){
+    window.initD2Stats();
+  } else {
+    console.error('[GravelData] initD2Stats not found after', waited, 'ms – d2-stats.js may have failed to load');
+  }
 }
 
 async function loadRides(){
+  window._cloudRides = window._cloudRides || []; // always ensure defined
   try{
     const res=await db.listDocuments(AW_DB,AW_COL,[Query.equal('userId',currentUser.$id),Query.orderDesc('$createdAt'),Query.limit(200)]);
     window._cloudRides = res.documents.filter(d=>d.routeName!=='__weight__'&&(d.distance||0)>0).map(d=>({
@@ -638,9 +665,15 @@ async function loadRides(){
       local.forEach(lr=>{ if(lr.date&&!window._cloudRides.some(cr=>cr.date===lr.date&&Math.abs(cr.km-(lr.km||0))<0.5)) window._cloudRides.push({name:lr.name||`Tour ${lr.date}`,date:lr.date,km:lr.km||0,hm:lr.hm||0,cal:lr.cal||0}); });
     }catch(e){}
     window._cloudRides.sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    console.log('[GravelData] cloud rides:', window._cloudRides.length);
   }catch(e){
-    console.warn('Rides load failed:',e);
-    try{ const local=JSON.parse(localStorage.getItem('vn_rides')||'[]'); window._cloudRides=local.map(r=>({name:r.name||`Tour ${r.date}`,date:r.date||'',km:r.km||0,hm:r.hm||0,cal:r.cal||0})); }catch(e2){ window._cloudRides=[]; }
+    console.warn('[GravelData] Rides load failed:', e.code, e.message);
+    // Fall back to localStorage only
+    try{
+      const local=JSON.parse(localStorage.getItem('vn_rides')||'[]');
+      window._cloudRides=local.map(r=>({name:r.name||`Tour ${r.date}`,date:r.date||'',km:r.km||0,hm:r.hm||0,cal:r.cal||0}));
+      console.log('[GravelData] local fallback rides:', window._cloudRides.length);
+    }catch(e2){ window._cloudRides=[]; }
   }
 }
 
