@@ -545,7 +545,19 @@ window.loginUser = async function(){
   const errEl=document.getElementById('auth-error'); errEl.style.display='none';
   if(!email||!pass){ errEl.textContent='E-Mail und Passwort eingeben.'; errEl.style.display='block'; return; }
   const btn=document.getElementById('login-btn'); btn.disabled=true; btn.textContent='⏳ Verbinde…';
-  try { await account.createEmailPasswordSession(email,pass); currentUser=await account.get(); await initDashboard(); }
+  try {
+    try {
+      await account.createEmailPasswordSession(email,pass);
+    } catch(sessionErr) {
+      // Session already active: just use it instead of failing
+      const code = sessionErr.code || 0;
+      const msg = (sessionErr.message||'').toLowerCase();
+      const isActiveSession = code===401 || msg.includes('session') || msg.includes('already') || msg.includes('user_session_already_exists');
+      if(!isActiveSession) throw sessionErr;
+    }
+    currentUser = await account.get();
+    await initDashboard();
+  }
   catch(e){ errEl.textContent=e.message||'Login fehlgeschlagen'; errEl.style.display='block'; btn.disabled=false; btn.textContent='🔑 Einloggen'; }
 };
 
@@ -585,9 +597,18 @@ window.showPage = function(page){
 // ── init ─────────────────────────────────────────────────
 async function init(){
   setLoading(true);
-  try{ currentUser=await account.get(); await initDashboard(); }
-  catch(e){ document.getElementById('auth-screen').style.display='flex'; }
-  finally{ setLoading(false); }
+  try{
+    currentUser = await account.get();
+    await initDashboard();
+  } catch(e){
+    const code = e.code || e.status || 0;
+    if(code !== 401 && code !== 0){
+      // Possible transient/CORS error – retry once
+      await new Promise(r=>setTimeout(r,1200));
+      try{ currentUser=await account.get(); await initDashboard(); return; }catch(e2){}
+    }
+    document.getElementById('auth-screen').style.display='flex';
+  } finally{ setLoading(false); }
 }
 
 async function initDashboard(){
