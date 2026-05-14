@@ -447,7 +447,7 @@ function d2RenderRadialHeatmap(scope, allRides){
   container.appendChild(svg);
 }
 
-
+function d2RenderTourList(scope, allRides){
   const list=scope.querySelector('.d2-tour-list');
   if(!list) return;
   const recent=allRides.slice(0,10);
@@ -469,3 +469,221 @@ function d2RenderRadialHeatmap(scope, allRides){
       </div>
     </div>`).join('');
 }
+
+/* ═══════════════════════════════════════════════════════
+   COMMUNITY ROUTENKARTE
+   Einbinden mit: <div class="d2-community-map-container" style="height:420px;"></div>
+   Wird automatisch beim ersten Aufruf initialisiert.
+   Benötigt maplibre-gl (wird automatisch geladen falls nicht vorhanden).
+   Appwrite-Verbindung über window.AW_DB / window.AW_COL / window.db
+   ═══════════════════════════════════════════════════════ */
+
+(function injectCommunityCSS(){
+  if(document.getElementById('d2-community-style')) return;
+  const s=document.createElement('style');
+  s.id='d2-community-style';
+  s.textContent=`
+.d2-community-wrap{position:relative;width:100%;height:100%;min-height:320px;border-radius:var(--r-md,9px);overflow:hidden;}
+.d2-community-map{position:absolute;inset:0;}
+.d2-community-overlay{position:absolute;top:0;left:0;right:0;z-index:15;background:linear-gradient(180deg,rgba(4,5,8,0.85) 0%,rgba(4,5,8,0) 100%);padding:10px 13px 20px;display:flex;align-items:center;gap:10px;pointer-events:none;}
+.d2-community-title{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--text,#e4ecf4);}
+.d2-community-status{font-size:9px;color:var(--muted,#3d4d60);font-family:var(--mono,'JetBrains Mono',monospace);margin-left:auto;}
+.d2-community-load{position:absolute;inset:0;z-index:20;background:rgba(4,5,8,0.88);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;}
+.d2-community-load-text{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--muted,#3d4d60);}
+.d2-community-load-bar{width:140px;height:2px;background:rgba(255,255,255,0.07);border-radius:2px;overflow:hidden;}
+.d2-community-load-fill{height:100%;background:var(--green,#00e676);border-radius:2px;transition:width .4s ease;box-shadow:0 0 6px rgba(0,230,118,0.5);}
+.d2-community-spin{width:20px;height:20px;border:2px solid rgba(255,255,255,0.08);border-top-color:var(--green,#00e676);border-radius:50%;animation:d2spin .7s linear infinite;}
+@keyframes d2spin{to{transform:rotate(360deg);}}
+`;
+  document.head.appendChild(s);
+})();
+
+// Holds one map instance per container element
+const _d2CommMaps = new WeakMap();
+
+async function _d2EnsureMapLibre(){
+  if(window.maplibregl) return;
+  // Dynamisch laden falls nicht vorhanden
+  await new Promise((res,rej)=>{
+    const l=document.createElement('link');l.rel='stylesheet';
+    l.href='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css';
+    document.head.appendChild(l);
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js';
+    s.onload=res; s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+async function d2InitCommunityMap(container){
+  if(_d2CommMaps.has(container)) return; // already init
+  _d2CommMaps.set(container, null); // mark as initializing
+
+  // Build wrapper
+  container.innerHTML=`
+    <div class="d2-community-wrap">
+      <div class="d2-community-map" id="_d2cm_${Date.now()}"></div>
+      <div class="d2-community-overlay">
+        <span class="d2-community-title">🌐 Community Routen</span>
+        <span class="d2-community-status" id="_d2cs_${Date.now()}"></span>
+      </div>
+      <div class="d2-community-load" id="_d2cl_${Date.now()}">
+        <div class="d2-community-spin"></div>
+        <div class="d2-community-load-text" id="_d2clt_${Date.now()}">Initialisiere…</div>
+        <div class="d2-community-load-bar"><div class="d2-community-load-fill" id="_d2clf_${Date.now()}" style="width:0%"></div></div>
+      </div>
+    </div>`;
+
+  const wrap   = container.querySelector('.d2-community-wrap');
+  const mapEl  = container.querySelector('.d2-community-map');
+  const loadEl = container.querySelector('.d2-community-load');
+  const ltEl   = container.querySelector('.d2-community-load-text');
+  const lfEl   = container.querySelector('.d2-community-load-fill');
+  const stEl   = container.querySelector('.d2-community-status');
+
+  const setLoad=(txt,pct)=>{ if(ltEl) ltEl.textContent=txt; if(lfEl) lfEl.style.width=pct+'%'; };
+
+  try{
+    await _d2EnsureMapLibre();
+    setLoad('Initialisiere Karte…', 8);
+
+    const routeMap = new maplibregl.Map({
+      container: mapEl,
+      style:{
+        version:8,
+        glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
+        sources:{ osm:{ type:'raster', tiles:['https://a.tile.openstreetmap.org/{z}/{x}/{y}.png','https://b.tile.openstreetmap.org/{z}/{x}/{y}.png','https://c.tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize:256, attribution:'© OpenStreetMap' } },
+        layers:[
+          { id:'bg',  type:'background', paint:{'background-color':'#000'} },
+          { id:'osm', type:'raster',     source:'osm', paint:{'raster-saturation':-1,'raster-contrast':0.1,'raster-brightness-min':0,'raster-brightness-max':0.32,'raster-opacity':0.9} }
+        ]
+      },
+      center:[9.15,48.35], zoom:9, pitchWithRotate:false, maxPitch:0
+    });
+    routeMap.addControl(new maplibregl.NavigationControl({showCompass:false}),'top-right');
+    routeMap.addControl(new maplibregl.ScaleControl({maxWidth:100,unit:'metric'}),'bottom-left');
+    _d2CommMaps.set(container, routeMap);
+
+    setLoad('Lade Community-Routen…', 20);
+
+    // Daten laden – nutzt window.db / AW_DB / AW_COL wenn verfügbar
+    let allDocs=[];
+    try{
+      const db=window.db, AW_DB=window.AW_DB, AW_COL=window.AW_COL;
+      if(db && AW_DB && AW_COL && window.Query){
+        let cursor=null, page=0;
+        while(true){
+          const qs=[window.Query.orderDesc('$createdAt'), window.Query.limit(100)];
+          if(cursor) qs.push(window.Query.cursorAfter(cursor));
+          const res=await db.listDocuments(AW_DB, AW_COL, qs);
+          const valid=res.documents.filter(d=>d.routeName!=='__weight__'&&(d.distance||0)>0);
+          allDocs=allDocs.concat(valid);
+          lfEl.style.width=Math.min(20+allDocs.length*0.3,65)+'%';
+          ltEl.textContent=`${allDocs.length} Routen geladen…`;
+          if(res.documents.length<100) break;
+          cursor=res.documents[res.documents.length-1].$id;
+          if(++page>30) break;
+        }
+      }
+    }catch(e){ console.warn('d2 community routes load error:',e); }
+
+    setLoad('Berechne Häufigkeiten…', 68);
+
+    // Frequenz-Berechnung
+    const GRID=0.001, snap=v=>Math.round(v/GRID)*GRID;
+    const segCounts=new Map(), routeLines=[], userSet=new Set();
+    for(const doc of allDocs){
+      let coords=[];
+      try{ coords=JSON.parse(doc.coordinates||'[]'); }catch(e){ continue; }
+      if(!Array.isArray(coords)||coords.length<2) continue;
+      const norm=coords.map(c=>{
+        if(Array.isArray(c)&&c.length>=2) return [parseFloat(c[0]),parseFloat(c[1])];
+        if(c&&typeof c==='object'){ if('lng' in c) return [parseFloat(c.lng),parseFloat(c.lat)]; if('lon' in c) return [parseFloat(c.lon),parseFloat(c.lat)]; }
+        return null;
+      }).filter(c=>c&&!isNaN(c[0])&&!isNaN(c[1])&&Math.abs(c[0])<=180&&Math.abs(c[1])<=90);
+      if(norm.length<2) continue;
+      userSet.add(doc.userId);
+      routeLines.push({coords:norm, km:(doc.distance||0)/1000});
+      for(let i=0;i<norm.length-1;i++){
+        const a=[snap(norm[i][0]),snap(norm[i][1])], b=[snap(norm[i+1][0]),snap(norm[i+1][1])];
+        const key=a[0]<b[0]||(a[0]===b[0]&&a[1]<b[1])?`${a[0]},${a[1]}|${b[0]},${b[1]}`:`${b[0]},${b[1]}|${a[0]},${a[1]}`;
+        segCounts.set(key,(segCounts.get(key)||0)+1);
+      }
+    }
+
+    setLoad('Rendere Karte…', 88);
+
+    const features=routeLines.map(({coords,km})=>{
+      let maxFreq=1;
+      for(let i=0;i<coords.length-1;i++){
+        const a=[snap(coords[i][0]),snap(coords[i][1])], b=[snap(coords[i+1][0]),snap(coords[i+1][1])];
+        const key=a[0]<b[0]||(a[0]===b[0]&&a[1]<b[1])?`${a[0]},${a[1]}|${b[0]},${b[1]}`:`${b[0]},${b[1]}|${a[0]},${a[1]}`;
+        maxFreq=Math.max(maxFreq,segCounts.get(key)||1);
+      }
+      return {type:'Feature',properties:{freq:maxFreq,km},geometry:{type:'LineString',coordinates:coords}};
+    });
+
+    const addLayers=()=>{
+      if(!features.length){ setLoad('Keine Routen gefunden.',100); return; }
+
+      routeMap.addSource('routes',{type:'geojson',data:{type:'FeatureCollection',features}});
+
+      // Zoom-abhängiger Skalierungsfaktor – verhindert dicke Farbblöcke beim Rauszoomen
+      const zoomScale=['interpolate',['exponential',2],['zoom'],6,0.08,8,0.18,10,0.4,12,0.7,14,1.0,16,1.4];
+
+      routeMap.addLayer({id:'routes-glow',type:'line',source:'routes',layout:{'line-join':'round','line-cap':'round'},paint:{
+        'line-color':['interpolate',['linear'],['get','freq'],1,'#001a2e',4,'#003344',8,'#004433',15,'#ffffff'],
+        'line-opacity':['interpolate',['linear'],['get','freq'],1,0.06,4,0.12,10,0.2],
+        'line-width':['*',zoomScale,['interpolate',['linear'],['get','freq'],1,8,4,14,8,22,15,34]],
+        'line-blur':['*',zoomScale,5]
+      }});
+      routeMap.addLayer({id:'routes-main',type:'line',source:'routes',layout:{'line-join':'round','line-cap':'round'},paint:{
+        'line-color':['interpolate',['linear'],['get','freq'],1,'#004466',2,'#0077aa',3,'#00aabb',5,'#00cc88',8,'#00e676',12,'#88ffaa',20,'#ffffff'],
+        'line-opacity':['interpolate',['linear'],['get','freq'],1,0.5,2,0.65,4,0.8,8,0.92,15,1.0],
+        'line-width':['*',zoomScale,['interpolate',['linear'],['get','freq'],1,1.2,2,2.0,3,3.0,5,4.8,8,7.0,12,10.0,20,14.0]]
+      }});
+
+      // Auf Routen fitten
+      const allC=features.flatMap(f=>f.geometry.coordinates);
+      if(allC.length){
+        const lngs=allC.map(c=>c[0]),lats=allC.map(c=>c[1]);
+        try{ routeMap.fitBounds([[Math.min(...lngs),Math.min(...lats)],[Math.max(...lngs),Math.max(...lats)]],{padding:40,duration:1200,maxZoom:13}); }catch(e){}
+      }
+
+      if(stEl) stEl.textContent=`${features.length} Routen · ${userSet.size} Fahrer`;
+      lfEl.style.width='100%';
+      setTimeout(()=>{ loadEl.style.display='none'; },450);
+
+      // Hover-Tooltip
+      const tip=document.createElement('div');
+      tip.style.cssText='position:absolute;background:rgba(4,5,8,0.93);border:1px solid rgba(255,255,255,0.12);border-radius:7px;padding:6px 12px;font-family:JetBrains Mono,monospace;font-size:11px;color:#e4ecf4;pointer-events:none;display:none;z-index:25;white-space:nowrap;';
+      wrap.appendChild(tip);
+      routeMap.on('mouseenter','routes-main',e=>{ routeMap.getCanvas().style.cursor='crosshair'; const {freq,km}=e.features[0].properties; tip.style.display='block'; tip.innerHTML=`<span style="color:#00e676;font-weight:700;">${freq}×</span> gefahren &nbsp;·&nbsp; <span style="color:#00d4ff;">${parseFloat(km).toFixed(1)} km</span>`; });
+      routeMap.on('mousemove','routes-main',e=>{ tip.style.left=(e.point.x+14)+'px'; tip.style.top=(e.point.y-28)+'px'; });
+      routeMap.on('mouseleave','routes-main',()=>{ routeMap.getCanvas().style.cursor=''; tip.style.display='none'; });
+    };
+
+    if(routeMap.loaded()) addLayers(); else routeMap.on('load',addLayers);
+
+  }catch(err){
+    console.error('d2 community map error:',err);
+    if(ltEl) ltEl.textContent='Fehler beim Laden.';
+  }
+}
+
+// Auto-init: alle .d2-community-map-container beim Start und bei Tab-Wechsel
+window.d2InitCommunityMap = d2InitCommunityMap;
+
+// Intersection Observer: Karte erst laden wenn sichtbar (spart Ressourcen)
+(function(){
+  const obs=new IntersectionObserver(entries=>{
+    entries.forEach(e=>{ if(e.isIntersecting) d2InitCommunityMap(e.target); });
+  },{threshold:0.1});
+  function scanContainers(){
+    document.querySelectorAll('.d2-community-map-container').forEach(el=>obs.observe(el));
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',scanContainers);
+  else scanContainers();
+  // Auch nach dynamischen DOM-Änderungen scannen
+  new MutationObserver(scanContainers).observe(document.body||document.documentElement,{childList:true,subtree:true});
+})();
