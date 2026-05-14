@@ -6237,9 +6237,12 @@ function startRec(){
     const el=document.getElementById(id);
     if(el){ el.style.opacity='1'; el.style.pointerEvents='auto'; }
   });
-  // Hide FABs
+  // Hide old FAB, header, bottom sheet (same as navi-mode)
+  document.body.classList.add('navi-mode'); // reuse navi-mode CSS to hide sidebar/bsheet/header
   const recFab = document.getElementById('rec-start-fab');
   if(recFab) recFab.style.display = 'none';
+  // Collapse bsheet on mobile
+  if(window.innerWidth <= 860) setSheetState(0);
   // Add touch listener to re-show UI
   if(recOverlay){
     recOverlay.addEventListener('touchstart', recShowUI, {passive:true});
@@ -6327,6 +6330,8 @@ function stopRec(){
   // Deactivate REC overlay
   const recOverlay = document.getElementById('rec-overlay');
   if(recOverlay){ recOverlay.classList.remove('active'); }
+  // Remove navi-mode (was added to hide sidebar/header during REC)
+  document.body.classList.remove('navi-mode');
   // Hide REC watermark logo
   const recWm = document.getElementById('rec-watermark-logo');
   if(recWm){ recWm.style.opacity='0'; recWm.style.pointerEvents='none'; }
@@ -6436,17 +6441,11 @@ function updateRecFab(){
   const dist = btn.querySelector('.rec-dist');
 
   if(recActive){
-    btn.classList.add('is-recording');
-    if(icon) icon.innerHTML = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><rect x="2" y="2" width="12" height="12" rx="2" fill="#ff3d6b"/></svg>';
-    if(lbl)  lbl.textContent  = 'STOP';
-    if(dist && recStartTime){
-      const sec = Math.floor((Date.now() - recStartTime) / 1000);
-      const mm  = Math.floor(sec/60).toString().padStart(2,'0');
-      const ss  = (sec%60).toString().padStart(2,'0');
-      dist.textContent = `${(recDistM/1000).toFixed(1)}km · ${mm}:${ss}`;
-    }
+    // Overlay takes over — hide the old FAB completely
+    btn.style.display = 'none';
   } else {
     btn.classList.remove('is-recording');
+    btn.style.display = ''; // restore default (flex via CSS)
     if(icon) icon.innerHTML = '<svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg" style="display:block;"><circle cx="9" cy="9" r="7" fill="#ff3d6b"/></svg>';
     if(lbl)  lbl.textContent  = 'REC';
     if(dist) dist.textContent = '';
