@@ -65,8 +65,7 @@
 .d2-tour-stat{text-align:right;}
 .d2-tour-stat-v{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--accent);}
 .d2-tour-stat-l{font-size:7px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
-.d2-two-col{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
-@media(max-width:480px){.d2-two-col{grid-template-columns:1fr;}}
+.d2-two-col{display:flex;flex-direction:column;gap:8px;margin-bottom:10px;}
 .d2-radial-wrap{display:flex;flex-direction:column;align-items:center;margin:4px 0 8px;}
 .d2-radial-svg{display:block;width:100%;max-width:280px;height:auto;}
 .d2-radial-month-label{font-size:8px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;fill:var(--muted,#3d4d60);}
@@ -185,29 +184,23 @@ function d2RenderKPIs(scope, rides){
 }
 
 function _d2MakeBarChart(canvas, labels, dp, col){
-  if(!canvas || canvas.offsetWidth === 0) return;
+  if(!canvas) return;
   const ctx = canvas.getContext('2d');
-  const gradPlugin = {
-    id:'d2grad'+col,
-    beforeDraw(chart){
-      const {ctx:c, chartArea} = chart;
-      if(!chartArea) return;
-      const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-      g.addColorStop(0, col+'0.35)'); g.addColorStop(1, col+'0)');
-      chart.data.datasets[0].backgroundColor = chart.data.datasets[0].data.map(v=>v>0?g:'rgba(255,255,255,0.03)');
-    }
-  };
+  // Simple solid color — no global plugin, no gradient issues
+  const bg  = dp.map(v => v>0 ? col+'0.5)' : 'rgba(255,255,255,0.03)');
+  const bc  = dp.map(v => v>0 ? col+'1)'   : 'rgba(255,255,255,0.07)');
   const existing = _d2Charts.get(canvas);
   if(existing){
     existing.data.labels = labels;
     existing.data.datasets[0].data = dp;
-    existing.data.datasets[0].borderColor = dp.map(v=>v>0?col+'1)':'rgba(255,255,255,0.07)');
+    existing.data.datasets[0].backgroundColor = bg;
+    existing.data.datasets[0].borderColor = bc;
     existing.update('none');
     return;
   }
   _d2Charts.set(canvas, new Chart(ctx, {
-    type:'bar', plugins:[gradPlugin],
-    data:{ labels, datasets:[{ data:dp, backgroundColor:'rgba(255,255,255,0.05)', borderColor:dp.map(v=>v>0?col+'1)':'rgba(255,255,255,0.07)'), borderWidth:1.5, borderRadius:3, borderSkipped:false }] },
+    type:'bar',
+    data:{ labels, datasets:[{ data:dp, backgroundColor:bg, borderColor:bc, borderWidth:1.5, borderRadius:3, borderSkipped:false }] },
     options:{ responsive:true, maintainAspectRatio:false, animation:{duration:250},
       plugins:{ legend:{display:false}, tooltip:{ backgroundColor:'rgba(4,5,8,0.96)', borderColor:'rgba(255,255,255,0.12)', borderWidth:1, bodyFont:{family:'JetBrains Mono'} }},
       scales:{ x:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'rgba(139,155,180,.7)',font:{size:8}} }, y:{ grid:{color:'rgba(255,255,255,0.04)'}, ticks:{color:'rgba(139,155,180,.7)',font:{size:8},maxTicksLimit:4}, beginAtZero:true } }
@@ -286,26 +279,40 @@ function d2RenderWeekdayChart(scope, rides){
 }
 
 function d2RenderDoughnut(scope, rides){
-  const canvas = scope.querySelector('.d2-doughnut-chart');
-  if(!canvas) return;
+  const svg = scope.querySelector('.d2-doughnut-svg');
+  if(!svg) return;
   const s=rides.filter(r=>r.km<30).length, m=rides.filter(r=>r.km>=30&&r.km<=70).length, l=rides.filter(r=>r.km>70).length;
+  const total = s+m+l;
   const set = (sel, v) => { const el=scope.querySelector(sel); if(el) el.textContent=v; };
   set('.d2-longest-tour', rides.length ? rides.reduce((x,r)=>Math.max(x,r.km),0).toFixed(0)+' km' : '—');
   set('.d2-avg-dist',     rides.length ? (rides.reduce((x,r)=>x+r.km,0)/rides.length).toFixed(0)+' km' : '—');
-  const existing = _d2Charts.get(canvas);
-  if(existing){
-    existing.data.datasets[0].data = [s,m,l];
-    existing.update('none');
+  set('.d2-count-s', s || '—');
+  set('.d2-count-m', m || '—');
+  set('.d2-count-l', l || '—');
+  // SVG arc helper
+  const cx=55, cy=55, r=40;
+  function arc(startAngle, endAngle){
+    if(endAngle - startAngle >= Math.PI*2) endAngle = startAngle + Math.PI*2 - 0.001;
+    const x1=cx+r*Math.cos(startAngle), y1=cy+r*Math.sin(startAngle);
+    const x2=cx+r*Math.cos(endAngle),   y2=cy+r*Math.sin(endAngle);
+    const large = (endAngle-startAngle) > Math.PI ? 1 : 0;
+    return `M ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2}`;
+  }
+  const arcS = scope.querySelector('.d2-arc-s');
+  const arcM = scope.querySelector('.d2-arc-m');
+  const arcL = scope.querySelector('.d2-arc-l');
+  if(!arcS) return;
+  if(total === 0){
+    arcS.setAttribute('d',''); arcM.setAttribute('d',''); arcL.setAttribute('d','');
     return;
   }
-  canvas.width = 110; canvas.height = 110;
-  _d2Charts.set(canvas, new Chart(canvas.getContext('2d'), {
-    type:'doughnut',
-    data:{ labels:['<30km','30–70km','>70km'], datasets:[{ data:[s,m,l], backgroundColor:['rgba(0,230,118,0.75)','rgba(0,212,255,0.7)','rgba(255,145,0,0.75)'], borderColor:['rgba(0,230,118,1)','rgba(0,212,255,1)','rgba(255,145,0,1)'], borderWidth:1.5, hoverOffset:4 }] },
-    options:{ responsive:false, maintainAspectRatio:false, cutout:'66%',
-      plugins:{ legend:{display:false}, tooltip:{ callbacks:{label:c=>`${c.label}: ${c.raw}`}, backgroundColor:'rgba(4,5,8,0.96)', borderColor:'rgba(255,255,255,0.12)', borderWidth:1, bodyFont:{family:'JetBrains Mono'} } }
-    }
-  }));
+  const gap = total > 1 ? 0.04 : 0;
+  const start = -Math.PI/2;
+  const aS = (s/total)*Math.PI*2, aM = (m/total)*Math.PI*2, aL = (l/total)*Math.PI*2;
+  let a = start;
+  arcS.setAttribute('d', s ? arc(a+gap/2, a+aS-gap/2) : ''); a+=aS;
+  arcM.setAttribute('d', m ? arc(a+gap/2, a+aM-gap/2) : ''); a+=aM;
+  arcL.setAttribute('d', l ? arc(a+gap/2, a+aL-gap/2) : '');
 }
 
 function d2RenderActivityStats(scope, rides){
